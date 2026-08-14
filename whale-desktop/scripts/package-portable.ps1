@@ -49,8 +49,9 @@ if ($LASTEXITCODE -gt 7) {
 $tauriConfig = Get-Content -LiteralPath (Join-Path $projectRoot 'src-tauri\tauri.conf.json') -Raw | ConvertFrom-Json
 $installerName = '{0}_{1}_x64-setup.exe' -f $tauriConfig.productName, $tauriConfig.version
 $installerSource = Join-Path $projectRoot (Join-Path 'src-tauri\target\release\bundle\nsis' $installerName)
+$installerOutputName = 'Whale Harness Desktop ' + ([char]0x5B89) + ([char]0x88C5) + ([char]0x5305) + '.exe'
 if (Test-Path -LiteralPath $installerSource -PathType Leaf) {
-    Copy-Item -LiteralPath $installerSource -Destination (Join-Path $releaseRoot 'Whale Harness Desktop 安装包.exe') -Force
+    Copy-Item -LiteralPath $installerSource -Destination (Join-Path $releaseRoot $installerOutputName) -Force
 }
 
 $size = (Get-ChildItem -LiteralPath $outputRoot -Recurse -File | Measure-Object Length -Sum).Sum

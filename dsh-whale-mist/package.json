@@ -1,6 +1,6 @@
 {
   "name": "dsh-whale-mist",
-  "version": "0.3.0",
+  "version": "0.2.0",
   "description": "Whale Mist theme for the DeepSeek Harness Web UI",
   "type": "module",
   "main": "./src/index.js",

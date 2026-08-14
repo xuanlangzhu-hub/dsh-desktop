@@ -206,10 +206,37 @@ fn write_if_missing(path: &Path, content: &str) -> Result<(), String> {
     fs::write(path, content).map_err(|error| format!("无法创建 {}：{error}", path.display()))
 }
 
+fn package_version_from_manifest(content: &str, expected_name: &str) -> Result<String, String> {
+    let manifest = serde_json::from_str::<serde_json::Value>(content)
+        .map_err(|error| format!("主题 package.json 无效：{error}"))?;
+    let package_name = manifest
+        .get("name")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| "主题 package.json 缺少 name".to_string())?;
+    if package_name != expected_name {
+        return Err(format!(
+            "主题包名称不匹配：期望 {expected_name}，实际 {package_name}"
+        ));
+    }
+    manifest
+        .get("version")
+        .and_then(serde_json::Value::as_str)
+        .filter(|version| !version.trim().is_empty())
+        .map(str::to_owned)
+        .ok_or_else(|| "主题 package.json 缺少 version".to_string())
+}
+
+fn read_package_version(manifest_path: &Path, expected_name: &str) -> Result<String, String> {
+    let content = fs::read_to_string(manifest_path)
+        .map_err(|error| format!("无法读取 {}：{error}", manifest_path.display()))?;
+    package_version_from_manifest(&content, expected_name)
+}
+
 fn prepare_desktop_profile(app: &AppHandle, runtime: &RuntimePaths) -> Result<(), String> {
     let profile_dir = dsh_home_dir(app)?.join("profiles").join(DESKTOP_PROFILE);
     let theme_target = profile_dir.join("node_modules").join("dsh-whale-mist");
     copy_directory(&runtime.theme, &theme_target)?;
+    let theme_version = read_package_version(&theme_target.join("package.json"), "dsh-whale-mist")?;
 
     let manifest_path = profile_dir.join("package.json");
     let mut manifest = if manifest_path.exists() {
@@ -238,7 +265,7 @@ fn prepare_desktop_profile(app: &AppHandle, runtime: &RuntimePaths) -> Result<()
     dependencies
         .as_object_mut()
         .expect("dependencies was normalized")
-        .insert("dsh-whale-mist".into(), serde_json::json!("0.3.0"));
+        .insert("dsh-whale-mist".into(), serde_json::json!(theme_version));
 
     let dsh = root.entry("dsh").or_insert_with(|| serde_json::json!({}));
     if !dsh.is_object() {
@@ -550,4 +577,32 @@ fn main() {
             stop_backend(&shutdown_state);
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::package_version_from_manifest;
+
+    #[test]
+    fn reads_theme_version_from_its_package_manifest() {
+        let manifest = r#"{
+            "name": "dsh-whale-mist",
+            "version": "0.2.0"
+        }"#;
+
+        assert_eq!(
+            package_version_from_manifest(manifest, "dsh-whale-mist").unwrap(),
+            "0.2.0"
+        );
+    }
+
+    #[test]
+    fn rejects_a_different_package_manifest() {
+        let manifest = r#"{
+            "name": "some-other-theme",
+            "version": "9.9.9"
+        }"#;
+
+        assert!(package_version_from_manifest(manifest, "dsh-whale-mist").is_err());
+    }
 }
