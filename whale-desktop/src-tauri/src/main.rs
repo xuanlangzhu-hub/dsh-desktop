@@ -22,6 +22,7 @@ const READY_ATTEMPTS: usize = 240;
 const READY_INTERVAL: Duration = Duration::from_millis(500);
 const PREFERRED_PORT: u16 = 3210;
 const DESKTOP_PROFILE: &str = "whale-desktop";
+const PROFILE_THEME_DEPENDENCY: &str = "link:./.whale-desktop/dsh-whale-mist";
 
 #[derive(Clone)]
 struct RuntimePaths {
@@ -232,11 +233,25 @@ fn read_package_version(manifest_path: &Path, expected_name: &str) -> Result<Str
     package_version_from_manifest(&content, expected_name)
 }
 
-fn prepare_desktop_profile(app: &AppHandle, runtime: &RuntimePaths) -> Result<(), String> {
-    let profile_dir = dsh_home_dir(app)?.join("profiles").join(DESKTOP_PROFILE);
+fn prepare_profile_directory(profile_dir: &Path, runtime_theme: &Path) -> Result<(), String> {
+    let managed_theme = profile_dir.join(".whale-desktop").join("dsh-whale-mist");
+    copy_directory(runtime_theme, &managed_theme)?;
+    read_package_version(&managed_theme.join("package.json"), "dsh-whale-mist")?;
+
     let theme_target = profile_dir.join("node_modules").join("dsh-whale-mist");
-    copy_directory(&runtime.theme, &theme_target)?;
-    let theme_version = read_package_version(&theme_target.join("package.json"), "dsh-whale-mist")?;
+    let target_metadata = fs::symlink_metadata(&theme_target).ok();
+    let target_is_link = target_metadata
+        .as_ref()
+        .is_some_and(|metadata| metadata.file_type().is_symlink());
+    let target_is_managed_link = target_is_link
+        && fs::canonicalize(&theme_target).ok() == fs::canonicalize(&managed_theme).ok();
+    if target_is_link && !target_is_managed_link {
+        fs::remove_dir(&theme_target)
+            .map_err(|error| format!("无法迁移旧主题链接 {}：{error}", theme_target.display()))?;
+    }
+    if !target_is_managed_link {
+        copy_directory(&managed_theme, &theme_target)?;
+    }
 
     let manifest_path = profile_dir.join("package.json");
     let mut manifest = if manifest_path.exists() {
@@ -265,7 +280,10 @@ fn prepare_desktop_profile(app: &AppHandle, runtime: &RuntimePaths) -> Result<()
     dependencies
         .as_object_mut()
         .expect("dependencies was normalized")
-        .insert("dsh-whale-mist".into(), serde_json::json!(theme_version));
+        .insert(
+            "dsh-whale-mist".into(),
+            serde_json::json!(PROFILE_THEME_DEPENDENCY),
+        );
 
     let dsh = root.entry("dsh").or_insert_with(|| serde_json::json!({}));
     if !dsh.is_object() {
@@ -316,6 +334,11 @@ fn prepare_desktop_profile(app: &AppHandle, runtime: &RuntimePaths) -> Result<()
         "packages:\n  - .\n\nnodeLinker: hoisted\nautoInstallPeers: false\n",
     )?;
     Ok(())
+}
+
+fn prepare_desktop_profile(app: &AppHandle, runtime: &RuntimePaths) -> Result<(), String> {
+    let profile_dir = dsh_home_dir(app)?.join("profiles").join(DESKTOP_PROFILE);
+    prepare_profile_directory(&profile_dir, &runtime.theme)
 }
 
 fn log_files(app: &AppHandle) -> Result<(File, File, PathBuf), String> {
@@ -581,7 +604,35 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::package_version_from_manifest;
+    use super::{package_version_from_manifest, prepare_profile_directory};
+    use std::{
+        fs,
+        path::PathBuf,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    struct TestDirectory(PathBuf);
+
+    impl TestDirectory {
+        fn new() -> Self {
+            let unique = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let path = std::env::temp_dir().join(format!(
+                "whale-profile-test-{}-{unique}",
+                std::process::id()
+            ));
+            fs::create_dir_all(&path).unwrap();
+            Self(path)
+        }
+    }
+
+    impl Drop for TestDirectory {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
 
     #[test]
     fn reads_theme_version_from_its_package_manifest() {
@@ -604,5 +655,58 @@ mod tests {
         }"#;
 
         assert!(package_version_from_manifest(manifest, "dsh-whale-mist").is_err());
+    }
+
+    #[test]
+    fn profile_uses_a_local_theme_link_and_preserves_user_plugins() {
+        let temp = TestDirectory::new();
+        let runtime_theme = temp.0.join("runtime-theme");
+        let profile_dir = temp.0.join("profile");
+        fs::create_dir_all(&runtime_theme).unwrap();
+        fs::create_dir_all(&profile_dir).unwrap();
+        fs::write(
+            runtime_theme.join("package.json"),
+            r#"{"name":"dsh-whale-mist","version":"0.2.0"}"#,
+        )
+        .unwrap();
+        fs::write(
+            profile_dir.join("package.json"),
+            r#"{
+                "dependencies": {
+                    "dsh-archived-sessions": "github:Zephyr-vibe/dsh-archived-sessions",
+                    "dsh-whale-mist": "link:F:/old/theme"
+                },
+                "dsh": {"profile": {"bundles": ["dsh-archived-sessions"]}}
+            }"#,
+        )
+        .unwrap();
+
+        prepare_profile_directory(&profile_dir, &runtime_theme).unwrap();
+
+        let manifest: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(profile_dir.join("package.json")).unwrap())
+                .unwrap();
+        assert_eq!(
+            manifest["dependencies"]["dsh-whale-mist"].as_str(),
+            Some("link:./.whale-desktop/dsh-whale-mist")
+        );
+        assert_eq!(
+            manifest["dependencies"]["dsh-archived-sessions"].as_str(),
+            Some("github:Zephyr-vibe/dsh-archived-sessions")
+        );
+        assert!(
+            profile_dir
+                .join(".whale-desktop")
+                .join("dsh-whale-mist")
+                .join("package.json")
+                .is_file()
+        );
+        assert!(
+            manifest["dsh"]["profile"]["bundles"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|bundle| bundle == "dsh-archived-sessions")
+        );
     }
 }
