@@ -1,0 +1,8 @@
+node_modules/
+src-tauri/target/
+*.log
+portable/
+runtime/node/node.exe
+.runtime-test-home/
+.desktop-test-home/
+.portable-test-home/

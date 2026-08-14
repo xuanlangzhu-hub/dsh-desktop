@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light" />
+    <title>Whale Harness Desktop</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="desktop-stage" aria-live="polite">
+      <section class="launch-card" id="launch-card">
+        <div class="brand-mark" aria-hidden="true">
+          <img src="./whale.png" alt="" />
+        </div>
+        <p class="eyebrow">DEEPSEEK HARNESS</p>
+        <h1>Whale Desktop</h1>
+        <p class="status" id="status">正在准备本地服务…</p>
+
+        <div class="progress-track" id="progress-track" aria-hidden="true">
+          <span></span>
+        </div>
+
+        <div class="error-panel" id="error-panel" hidden>
+          <p id="error-detail">服务暂时无法启动。</p>
+          <button type="button" id="retry-button">重新尝试</button>
+        </div>
+
+        <p class="footnote">官方 WebUI · Whale Mist · 本地运行</p>
+      </section>
+    </main>
+    <script src="./app.js"></script>
+  </body>
+</html>

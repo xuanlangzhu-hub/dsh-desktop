@@ -1,0 +1,20 @@
+# Whale TUI is a direct terminal surface over dsh-base. It mounts no Host,
+# HTTP server, Web runtime, or browser plugin.
+- id: system-prompt
+  config:
+    persona: >-
+      You are a coding agent powered by the {{model}} model. Your working directory is {{cwd}}.
+
+- id: hmr
+  disabled: true
+
+- id: tools
+  config:
+    mode: !!js process.env.DSH_TOOLS_MODE
+
+- insert:
+    - id: code-runtime
+      name: '@deepseek-ai/dsh-code-runtime-worker-thread'
+
+    - id: whale-tui
+      name: dsh-whale-tui

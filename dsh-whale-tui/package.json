@@ -1,0 +1,36 @@
+{
+  "name": "dsh-whale-tui",
+  "version": "0.2.0",
+  "description": "Whale Mist terminal UI profile for DeepSeek Harness",
+  "type": "module",
+  "main": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh-agent": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-agent-default-model": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-llm": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-session": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-session-persistence": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-user-approval": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-user-questions": "0.1.0-rc.6"
+  },
+  "files": [
+    "src/*.js",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "scripts": {
+    "check": "node --check src/arguments.js && node --check src/terminal.js && node --check src/index.js && node qa/unit.mjs"
+  },
+  "license": "MIT",
+  "private": true
+}

@@ -1,0 +1,31 @@
+# Local releases and machine-specific launchers
+/release/
+*.lnk
+*.exe
+*.log
+
+# Dependency and build caches
+**/node_modules/
+**/target/
+/whale-desktop/runtime/node/node.exe
+/whale-desktop/src-tauri/gen/
+
+# Local Harness/user data and test homes
+.dsh/
+**/.runtime-test-home/
+**/.desktop-test-home/
+**/.portable-test-home/
+
+# Secrets and local environment
+.env
+.env.*
+*.pem
+*.key
+*.pfx
+*.p12
+
+# Editor and OS noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

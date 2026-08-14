@@ -1,0 +1,92 @@
+/*
+ * PROTOTYPE — Whale Mist / 鲸雾蓝
+ * Durable output of the prototype: the proposed visual language.
+ */
+:root {
+  color-scheme: light;
+
+  /* Canvas */
+  --wm-canvas-top: #f4f9ff;
+  --wm-canvas-mid: #edf6fe;
+  --wm-canvas-bottom: #e7f2fc;
+  --wm-canvas-glow: rgba(255, 255, 255, 0.94);
+  --wm-sidebar-top: rgba(223, 238, 251, 0.91);
+  --wm-sidebar-bottom: rgba(215, 233, 248, 0.82);
+  --wm-rail: rgba(218, 235, 249, 0.8);
+
+  /* Ink */
+  --wm-ink: #153047;
+  --wm-ink-strong: #0a263d;
+  --wm-ink-muted: #62798c;
+  --wm-ink-faint: #8094a5;
+  --wm-accent: #1468a8;
+  --wm-accent-strong: #0b4e83;
+  --wm-accent-soft: rgba(33, 128, 193, 0.12);
+  --wm-success: #2b8164;
+  --wm-warning: #a96a22;
+
+  /* Materials: three levels only */
+  --wm-material-structural: rgba(224, 239, 251, 0.78);
+  --wm-material-floating: rgba(255, 255, 255, 0.61);
+  --wm-material-floating-strong: rgba(252, 254, 255, 0.78);
+  --wm-material-control: rgba(255, 255, 255, 0.52);
+  --wm-material-solid: #f8fbfe;
+  --wm-material-user: rgba(210, 233, 250, 0.68);
+  --wm-scrim: rgba(11, 44, 67, 0.16);
+
+  /* Edges & depth */
+  --wm-edge: rgba(255, 255, 255, 0.78);
+  --wm-edge-subtle: rgba(61, 111, 147, 0.11);
+  --wm-edge-strong: rgba(54, 101, 136, 0.19);
+  --wm-shadow-sm: 0 1px 2px rgba(36, 76, 106, 0.06), 0 5px 16px rgba(45, 91, 124, 0.06);
+  --wm-shadow-md: 0 1px 2px rgba(36, 76, 106, 0.07), 0 15px 40px rgba(45, 91, 124, 0.11);
+  --wm-shadow-lg: 0 3px 8px rgba(36, 76, 106, 0.08), 0 28px 70px rgba(45, 91, 124, 0.16);
+  --wm-inset-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+
+  /* Blur weight maps to surface size */
+  --wm-blur-control: blur(14px) saturate(126%);
+  --wm-blur-panel: blur(24px) saturate(132%);
+  --wm-blur-large: blur(34px) saturate(138%);
+
+  /* Geometry */
+  --wm-radius-xs: 8px;
+  --wm-radius-sm: 12px;
+  --wm-radius-md: 17px;
+  --wm-radius-lg: 24px;
+  --wm-radius-xl: 30px;
+  --wm-hit: 40px;
+  --wm-sidebar-width: 272px;
+  --wm-content-width: 820px;
+
+  /* Motion: critically damped feel, no decorative bounce */
+  --wm-ease-spring: cubic-bezier(0.22, 0.8, 0.2, 1);
+  --wm-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --wm-response-fast: 160ms;
+  --wm-response: 320ms;
+  --wm-response-slow: 420ms;
+
+  font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-optical-sizing: auto;
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --wm-material-structural: #e2eff9;
+    --wm-material-floating: #f7fbfe;
+    --wm-material-floating-strong: #fbfdff;
+    --wm-material-control: #f4f9fd;
+    --wm-blur-control: none;
+    --wm-blur-panel: none;
+    --wm-blur-large: none;
+  }
+}
+
+@media (prefers-contrast: more) {
+  :root {
+    --wm-ink-muted: #3c566b;
+    --wm-edge-subtle: rgba(23, 63, 92, 0.35);
+    --wm-edge-strong: rgba(16, 55, 83, 0.55);
+    --wm-material-floating: rgba(255, 255, 255, 0.9);
+  }
+}
