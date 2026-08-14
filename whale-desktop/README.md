@@ -1,9 +1,15 @@
-# Whale Harness Desktop 0.2.0
+# Whale Harness Desktop 0.3.0
 
 Tauri 2 desktop app for DeepSeek Harness and Whale Mist. The release carries a
 pinned Node.js and DeepSeek Harness runtime, starts the official WebUI on a
 private localhost port, navigates the WebView to it, and owns process cleanup
 when the app exits. It does not call `npx` or download packages at startup.
+
+Version `0.3.0` includes vision-bridge v2. Image blocks remain in the session so
+the official client can render previews, while the text-only DeepSeek adapter
+serializes each image into a note containing its attachment ID and local path.
+The runtime build fails if upstream package markers drift instead of silently
+shipping an unpatched bundle.
 
 ## Development
 
@@ -35,4 +41,4 @@ Bundled versions:
 
 - Node.js `v24.18.0`
 - `@deepseek-ai/dsh` `0.1.0-rc.6`
-- Whale Mist `0.3.0`
+- Whale Mist `0.2.0`

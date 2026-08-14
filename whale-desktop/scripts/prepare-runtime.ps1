@@ -31,6 +31,22 @@ finally {
 }
 
 $modulesRoot = [System.IO.Path]::GetFullPath((Join-Path $dshRoot 'node_modules'))
+$visionBridgeScript = Join-Path $PSScriptRoot 'apply-vision-bridge.ps1'
+& $visionBridgeScript -ModulesRoot $modulesRoot
+
+$visionBridgeTargets = Get-ChildItem -LiteralPath $modulesRoot -Recurse -File -Filter 'index.js' | Where-Object {
+    $_.FullName -match '@deepseek-ai[\\/](dsh-host-apiproxy|dsh-llm-deepseek)[\\/]lib[\\/]index\.js$'
+}
+if (@($visionBridgeTargets).Count -lt 2) {
+    throw "vision-bridge v2 syntax-check targets missing under $modulesRoot"
+}
+foreach ($target in $visionBridgeTargets) {
+    & (Join-Path $nodeRoot 'node.exe') --check $target.FullName
+    if ($LASTEXITCODE -ne 0) {
+        throw "vision-bridge v2 produced invalid JavaScript: $($target.FullName)"
+    }
+}
+
 $pruneTargets = @(
     'node-pty\prebuilds\darwin-arm64',
     'node-pty\prebuilds\darwin-x64',

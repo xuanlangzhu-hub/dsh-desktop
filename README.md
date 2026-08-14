@@ -1,6 +1,6 @@
 # Whale Harness Desktop
 
-一个围绕 DeepSeek Harness 官方 WebUI 构建的 Windows 桌面端实验项目。当前版本为 `0.2.0`：Tauri 负责原生窗口与进程生命周期，内置 Node.js 和固定版本 DSH，Whale Mist 提供淡蓝渐变、克制玻璃材质和简洁排版。
+一个围绕 DeepSeek Harness 官方 WebUI 构建的 Windows 桌面端实验项目。当前版本为 `0.3.0`：Tauri 负责原生窗口与进程生命周期，内置 Node.js 和固定版本 DSH，Whale Mist 提供淡蓝渐变、克制玻璃材质和简洁排版，并内置 vision-bridge v2 以保留图片预览、让纯文本 DeepSeek 模型安全接收图片文件引用。
 
 ## 目录
 
@@ -27,7 +27,7 @@ npm run build
 npm run portable
 ```
 
-`prepare:runtime` 会按锁文件安装 `@deepseek-ai/dsh@0.1.0-rc.6`，复制当前 Node 可执行文件，并裁掉与 Windows x64 无关的原生预编译件。安装包和便携目录最终整理到工作区的 `release/`。
+`prepare:runtime` 会按锁文件安装 `@deepseek-ai/dsh@0.1.0-rc.6`，应用 vision-bridge v2，使用 Node 校验补丁后的 JavaScript，再裁掉与 Windows x64 无关的原生预编译件。任何补丁标记漂移都会直接中止构建，避免产出未桥接图片的安装包。安装包和便携目录最终整理到工作区的 `release/`。
 
 ## 用户数据
 

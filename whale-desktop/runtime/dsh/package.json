@@ -1,6 +1,6 @@
 {
   "name": "whale-harness-desktop-runtime",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "Pinned DeepSeek Harness runtime bundled with Whale Harness Desktop",
   "dependencies": {

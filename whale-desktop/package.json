@@ -1,6 +1,6 @@
 {
   "name": "whale-harness-desktop",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "Tauri desktop shell for DeepSeek Harness and Whale Mist",
   "scripts": {
@@ -9,7 +9,8 @@
     "prepare:runtime": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/prepare-runtime.ps1",
     "build": "tauri build",
     "portable": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/package-portable.ps1",
-    "check": "node --check dist/app.js && cargo check --manifest-path src-tauri/Cargo.toml"
+    "qa:vision-bridge": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File qa/vision-bridge-regression.ps1",
+    "check": "node --check dist/app.js && npm run qa:vision-bridge && cargo check --manifest-path src-tauri/Cargo.toml"
   },
   "devDependencies": {
     "@tauri-apps/cli": "2.11.4"
