@@ -21,8 +21,189 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const READY_ATTEMPTS: usize = 240;
 const READY_INTERVAL: Duration = Duration::from_millis(500);
 const PREFERRED_PORT: u16 = 3210;
+const PORT_CANDIDATE_ATTEMPTS: usize = 32;
 const DESKTOP_PROFILE: &str = "whale-desktop";
+const WSL_PROFILE: &str = "whale-desktop-wsl";
 const PROFILE_THEME_DEPENDENCY: &str = "link:./.whale-desktop/dsh-whale-mist";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Backend {
+    Windows,
+    Wsl,
+}
+
+impl Backend {
+    fn from_environment() -> Result<Self, String> {
+        let value = env::var("WHALE_HARNESS_BACKEND").ok();
+        match value.as_deref().map(str::trim) {
+            None | Some("") | Some("windows") => Ok(Self::Windows),
+            Some("wsl") => Ok(Self::Wsl),
+            Some(other) => Err(format!(
+                "未知的 WHALE_HARNESS_BACKEND 值：{other}（可选 windows|wsl，未设置时保持 Windows 模式）"
+            )),
+        }
+    }
+}
+
+#[derive(Debug)]
+struct WslDistribution {
+    name: String,
+    version: u32,
+    is_default: bool,
+}
+
+fn parse_wsl_distribution_line(line: &str) -> Option<WslDistribution> {
+    let line = line.trim_end();
+    if line.is_empty() {
+        return None;
+    }
+    let is_default = line.trim_start().starts_with('*');
+    let trimmed = line.trim_start().trim_start_matches('*').trim();
+    let tokens = trimmed.split_whitespace().collect::<Vec<_>>();
+    if tokens.len() < 3 {
+        return None;
+    }
+    let version = tokens.last().and_then(|token| token.parse::<u32>().ok())?;
+    let state = tokens[tokens.len() - 2];
+    if !["Running", "Stopped", "Installing", "Uninstalling"].contains(&state) {
+        return None;
+    }
+    let name = tokens[..tokens.len() - 2].join(" ");
+    Some(WslDistribution {
+        name,
+        version,
+        is_default,
+    })
+}
+
+fn wsl_distributions() -> Result<Vec<WslDistribution>, String> {
+    let mut command = Command::new("wsl.exe");
+    command.args(["--list", "--verbose"]).env("WSL_UTF8", "1");
+    #[cfg(windows)]
+    command.creation_flags(CREATE_NO_WINDOW);
+    let output = command.output().map_err(|error| {
+        format!("无法调用 wsl.exe：{error}（WSL 未安装或不可用，Windows 模式不受影响）")
+    })?;
+    if !output.status.success() {
+        return Err(format!(
+            "wsl.exe 检查失败：{}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut distributions = Vec::new();
+    for raw in text.lines() {
+        if let Some(distribution) = parse_wsl_distribution_line(raw) {
+            distributions.push(distribution);
+        }
+    }
+    Ok(distributions)
+}
+
+fn resolve_wsl_distro(configured: Option<&str>) -> Result<String, String> {
+    let distributions = wsl_distributions()?;
+    if distributions.is_empty() {
+        return Err("没有检测到任何 WSL 发行版；实验后端需要 WSL2，Windows 模式不受影响".into());
+    }
+    let target = if let Some(name) = configured {
+        distributions
+            .iter()
+            .find(|distribution| distribution.name == name)
+            .ok_or_else(|| {
+                let available = distributions
+                    .iter()
+                    .map(|distribution| distribution.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join("、");
+                format!("WHALE_HARNESS_WSL_DISTRO 指定的发行版 {name} 不存在；可用：{available}")
+            })?
+    } else {
+        distributions
+            .iter()
+            .find(|distribution| distribution.is_default)
+            .ok_or_else(|| {
+                "没有默认 WSL 发行版；请先用 wsl --set-default 设置一个 WSL2 发行版".to_string()
+            })?
+    };
+    if target.version != 2 {
+        return Err(format!(
+            "WSL 发行版 {} 是 WSL{}，实验后端要求 WSL2；Windows 模式不受影响",
+            target.name, target.version
+        ));
+    }
+    Ok(target.name.clone())
+}
+
+fn windows_to_wsl_path(path: &Path) -> Result<String, String> {
+    let text = path.as_os_str().to_string_lossy();
+    let bytes = text.as_bytes();
+    if bytes.len() < 3
+        || !bytes[0].is_ascii_alphabetic()
+        || bytes[1] != b':'
+        || !(bytes[2] == b'\\' || bytes[2] == b'/')
+    {
+        return Err(format!(
+            "无法把 Windows 工作区路径转换为 WSL 路径：{}（仅支持驱动器路径，例如 F:\\project）",
+            path.display()
+        ));
+    }
+    let drive = (bytes[0] as char).to_ascii_lowercase();
+    let rest = text[3..].replace('\\', "/");
+    if rest.is_empty() {
+        Ok(format!("/mnt/{drive}"))
+    } else {
+        Ok(format!("/mnt/{drive}/{rest}"))
+    }
+}
+
+fn ensure_wsl_runtime_ready(distro: &str) -> Result<(), String> {
+    let mut command = Command::new("wsl.exe");
+    command
+        .args([
+            "-d",
+            distro,
+            "--",
+            "bash",
+            "-lc",
+            r#"test -x "$HOME/.local/share/whale-harness/runtime/bin/start-web.sh" \
+                -a -x "$HOME/.local/share/whale-harness/runtime/bin/stop-web.sh" \
+                -a -x "$HOME/.local/share/whale-harness/runtime/node/bin/node" \
+                -a -f "$HOME/.local/share/whale-harness/runtime/dsh/node_modules/@deepseek-ai/dsh/lib/bin.js" \
+                -a -f "$HOME/.dsh/profiles/whale-desktop-wsl/package.json""#,
+        ])
+        .env("WSL_UTF8", "1");
+    #[cfg(windows)]
+    command.creation_flags(CREATE_NO_WINDOW);
+    let status = command
+        .status()
+        .map_err(|error| format!("无法在 WSL 发行版 {distro} 中检查运行时：{error}"))?;
+    if !status.success() {
+        return Err(format!(
+            "WSL 后端运行时未准备完成（发行版 {distro}）。请先在 Windows 上运行 whale-desktop\\scripts\\prepare-wsl-runtime.ps1；Windows 模式不受影响"
+        ));
+    }
+    Ok(())
+}
+
+fn stop_wsl_backend(distro: &str) {
+    let mut command = Command::new("wsl.exe");
+    command
+        .args([
+            "-d",
+            distro,
+            "--",
+            "bash",
+            "-lc",
+            r#"exec "$HOME/.local/share/whale-harness/runtime/bin/stop-web.sh""#,
+        ])
+        .env("WSL_UTF8", "1")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    #[cfg(windows)]
+    command.creation_flags(CREATE_NO_WINDOW);
+    let _ = command.status();
+}
 
 #[derive(Clone)]
 struct RuntimePaths {
@@ -54,6 +235,7 @@ struct BackendRuntime {
     child: Option<Child>,
     generation: u64,
     status: DesktopStatus,
+    wsl_distro: Option<String>,
 }
 
 #[derive(Clone, Default)]
@@ -81,10 +263,28 @@ fn workspace_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from(r"C:\"))
 }
 
-fn reserve_port() -> Result<u16, String> {
-    if let Ok(listener) = TcpListener::bind(("127.0.0.1", PREFERRED_PORT)) {
-        drop(listener);
-        return Ok(PREFERRED_PORT);
+fn choose_port<C, A>(mut next_candidate: C, mut available: A) -> Result<u16, String>
+where
+    C: FnMut() -> Result<u16, String>,
+    A: FnMut(u16) -> Result<bool, String>,
+{
+    for _ in 0..PORT_CANDIDATE_ATTEMPTS {
+        let port = next_candidate()?;
+        if available(port)? {
+            return Ok(port);
+        }
+    }
+    Err(format!(
+        "尝试 {PORT_CANDIDATE_ATTEMPTS} 个候选端口后仍未找到 Windows 与后端都可用的端口"
+    ))
+}
+
+fn reserve_windows_port_candidate(prefer_default: bool) -> Result<u16, String> {
+    if prefer_default {
+        if let Ok(listener) = TcpListener::bind(("127.0.0.1", PREFERRED_PORT)) {
+            drop(listener);
+            return Ok(PREFERRED_PORT);
+        }
     }
     let listener = TcpListener::bind(("127.0.0.1", 0))
         .map_err(|error| format!("无法分配本地端口：{error}"))?;
@@ -94,6 +294,61 @@ fn reserve_port() -> Result<u16, String> {
         .port();
     drop(listener);
     Ok(port)
+}
+
+fn reserve_port() -> Result<u16, String> {
+    let mut first = true;
+    choose_port(
+        || {
+            let prefer_default = first;
+            first = false;
+            reserve_windows_port_candidate(prefer_default)
+        },
+        |_| Ok(true),
+    )
+}
+
+fn wsl_port_available(distro: &str, port: u16) -> Result<bool, String> {
+    let mut command = Command::new("wsl.exe");
+    command
+        .args([
+            "-d",
+            distro,
+            "--",
+            "bash",
+            "-lc",
+            r#"exec "$HOME/.local/share/whale-harness/runtime/node/bin/node" -e "const net=require('node:net');const port=Number(process.env.WHALE_WSL_PORT_CHECK);const server=net.createServer();server.once('error',(error)=>process.exit(error.code==='EADDRINUSE'||error.code==='EACCES'?10:11));server.listen({host:'127.0.0.1',port,exclusive:true},()=>server.close(()=>process.exit(0)));""#,
+        ])
+        .env("WSL_UTF8", "1")
+        .env("WSLENV", "WHALE_WSL_PORT_CHECK")
+        .env("WHALE_WSL_PORT_CHECK", port.to_string());
+    #[cfg(windows)]
+    command.creation_flags(CREATE_NO_WINDOW);
+    let output = command
+        .output()
+        .map_err(|error| format!("无法在 WSL 发行版 {distro} 中检查端口 {port}：{error}"))?;
+    match output.status.code() {
+        Some(0) => Ok(true),
+        Some(10) => Ok(false),
+        code => Err(format!(
+            "WSL 发行版 {distro} 检查端口 {port} 失败（状态 {:?}）：{}{}",
+            code,
+            String::from_utf8_lossy(&output.stdout).trim(),
+            String::from_utf8_lossy(&output.stderr).trim()
+        )),
+    }
+}
+
+fn reserve_wsl_port(distro: &str) -> Result<u16, String> {
+    let mut first = true;
+    choose_port(
+        || {
+            let prefer_default = first;
+            first = false;
+            reserve_windows_port_candidate(prefer_default)
+        },
+        |port| wsl_port_available(distro, port),
+    )
 }
 
 fn process_path(path: PathBuf) -> PathBuf {
@@ -450,14 +705,69 @@ fn spawn_harness(app: &AppHandle, port: u16) -> Result<(Child, PathBuf), String>
     Ok((child, stderr_path))
 }
 
+fn spawn_wsl_harness(app: &AppHandle, distro: &str, port: u16) -> Result<(Child, PathBuf), String> {
+    // Runtime readiness is validated once in launch_backend before port
+    // probing, so a missing WSL runtime fails with a readable preparation
+    // error instead of a confusing node/port-probe status.
+    let workspace = workspace_dir();
+    let workspace_wsl = windows_to_wsl_path(&workspace)?;
+    let (stdout, stderr, stderr_path) = log_files(app)?;
+    let port_text = port.to_string();
+
+    // WSLENV is the only way to hand these values through wsl.exe into the
+    // Linux launcher; they are re-read by scripts/wsl/start-web.js.
+    let mut command = Command::new("wsl.exe");
+    command
+        .args([
+            "-d",
+            distro,
+            "--",
+            "bash",
+            "-lc",
+            r#"exec "$HOME/.local/share/whale-harness/runtime/bin/start-web.sh""#,
+        ])
+        .env("WSL_UTF8", "1")
+        .env(
+            "WSLENV",
+            "WHALE_WSL_PORT:WHALE_WSL_HOST:WHALE_WSL_PROFILE:WHALE_WSL_WORKSPACE",
+        )
+        .env("WHALE_WSL_PORT", &port_text)
+        .env("WHALE_WSL_HOST", "127.0.0.1")
+        .env("WHALE_WSL_PROFILE", WSL_PROFILE)
+        .env("WHALE_WSL_WORKSPACE", &workspace_wsl)
+        .stdin(Stdio::null())
+        .stdout(Stdio::from(stdout))
+        .stderr(Stdio::from(stderr));
+    #[cfg(windows)]
+    command.creation_flags(CREATE_NO_WINDOW);
+
+    let launch_log = stderr_path.with_file_name("dsh-web.launch.log");
+    let _ = fs::write(
+        &launch_log,
+        format!(
+            "backend=wsl\ndistro={distro}\nprofile={WSL_PROFILE}\nworkspace={}\nworkspaceWsl={workspace_wsl}\nport={port}\nnote=workspace lives on a Windows drive; Linux projects are faster under ~/projects\ncommand={command:?}\n",
+            workspace.display()
+        ),
+    );
+    let child = command
+        .spawn()
+        .map_err(|error| format!("无法通过 WSL 发行版 {distro} 启动 DeepSeek Harness：{error}"))?;
+    Ok((child, stderr_path))
+}
+
 fn stop_backend(state: &DesktopState) {
-    let child = {
+    let (child, wsl_distro) = {
         let Ok(mut runtime) = state.0.lock() else {
             return;
         };
         runtime.generation = runtime.generation.wrapping_add(1);
-        runtime.child.take()
+        (runtime.child.take(), runtime.wsl_distro.take())
     };
+    // For the WSL backend, stop the Linux process group recorded by the
+    // pidfile before terminating the wsl.exe client that launched it.
+    if let Some(distro) = wsl_distro {
+        stop_wsl_backend(&distro);
+    }
     let Some(mut child) = child else {
         return;
     };
@@ -478,23 +788,58 @@ fn stop_backend(state: &DesktopState) {
 }
 
 fn launch_backend(app: &AppHandle, state: &DesktopState) -> Result<(), String> {
+    let backend = Backend::from_environment()?;
     stop_backend(state);
-    let port = reserve_port()?;
+    let resolved_wsl_distro = if backend == Backend::Wsl {
+        let configured = env::var("WHALE_HARNESS_WSL_DISTRO")
+            .ok()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        Some(resolve_wsl_distro(configured.as_deref())?)
+    } else {
+        None
+    };
+    if let Some(distro) = resolved_wsl_distro.as_deref() {
+        ensure_wsl_runtime_ready(distro)?;
+    }
+    let port = if let Some(distro) = resolved_wsl_distro.as_deref() {
+        reserve_wsl_port(distro)?
+    } else {
+        reserve_port()?
+    };
     let url = format!("http://127.0.0.1:{port}");
-    let (child, stderr_path) = spawn_harness(app, port)?;
+    let (child, stderr_path, wsl_distro, starting_detail) = match backend {
+        Backend::Windows => {
+            let (child, stderr_path) = spawn_harness(app, port)?;
+            (child, stderr_path, None, "正在启动内置 DeepSeek Harness…")
+        }
+        Backend::Wsl => {
+            let distro = resolved_wsl_distro
+                .as_deref()
+                .ok_or_else(|| "WSL 发行版解析状态丢失".to_string())?;
+            let (child, stderr_path) = spawn_wsl_harness(app, distro, port)?;
+            (
+                child,
+                stderr_path,
+                Some(distro.to_string()),
+                "正在启动 WSL 后端…（工作区位于 Windows 磁盘，速度可能较慢）",
+            )
+        }
+    };
     let generation = {
         let mut runtime = state.0.lock().map_err(|_| "后台状态已损坏".to_string())?;
         runtime.generation = runtime.generation.wrapping_add(1);
         runtime.child = Some(child);
+        runtime.wsl_distro = wsl_distro;
         runtime.status = DesktopStatus {
             phase: "starting".into(),
-            detail: "正在启动内置 DeepSeek Harness…".into(),
+            detail: starting_detail.into(),
             url: Some(url.clone()),
         };
         runtime.generation
     };
     if let Some(window) = app.get_webview_window("main") {
-        eval_status(&window, "setStatus", "正在启动内置 DeepSeek Harness…");
+        eval_status(&window, "setStatus", starting_detail);
     }
 
     let app = app.clone();
@@ -604,10 +949,13 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::{package_version_from_manifest, prepare_profile_directory};
+    use super::{
+        choose_port, package_version_from_manifest, parse_wsl_distribution_line,
+        prepare_profile_directory, windows_to_wsl_path,
+    };
     use std::{
         fs,
-        path::PathBuf,
+        path::{Path, PathBuf},
         time::{SystemTime, UNIX_EPOCH},
     };
 
@@ -632,6 +980,23 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[test]
+    fn wsl_port_selection_skips_a_guest_occupied_preferred_port() {
+        let mut candidates = [3210, 3721].into_iter();
+        let mut checked = Vec::new();
+        let selected = choose_port(
+            || Ok(candidates.next().expect("test candidate")),
+            |port| {
+                checked.push(port);
+                Ok(port != 3210)
+            },
+        )
+        .unwrap();
+
+        assert_eq!(selected, 3721);
+        assert_eq!(checked, vec![3210, 3721]);
     }
 
     #[test]
@@ -708,5 +1073,36 @@ mod tests {
                 .iter()
                 .any(|bundle| bundle == "dsh-archived-sessions")
         );
+    }
+
+    #[test]
+    fn converts_windows_drive_paths_to_wsl_mounts() {
+        assert_eq!(
+            windows_to_wsl_path(Path::new(r"F:\deepseekharness")).unwrap(),
+            "/mnt/f/deepseekharness"
+        );
+        assert_eq!(
+            windows_to_wsl_path(Path::new(r"C:\Users\Example\.dsh")).unwrap(),
+            "/mnt/c/Users/Example/.dsh"
+        );
+        assert_eq!(windows_to_wsl_path(Path::new(r"E:\")).unwrap(), "/mnt/e");
+        assert!(windows_to_wsl_path(Path::new(r"\\server\share")).is_err());
+        assert!(windows_to_wsl_path(Path::new("relative")).is_err());
+    }
+
+    #[test]
+    fn parses_wsl_distribution_lines() {
+        let parsed = parse_wsl_distribution_line("* Ubuntu2    Running         2").unwrap();
+        assert_eq!(parsed.name, "Ubuntu2");
+        assert_eq!(parsed.version, 2);
+        assert!(parsed.is_default);
+
+        let parsed = parse_wsl_distribution_line("  Ubuntu    Stopped         1").unwrap();
+        assert_eq!(parsed.name, "Ubuntu");
+        assert_eq!(parsed.version, 1);
+        assert!(!parsed.is_default);
+
+        assert!(parse_wsl_distribution_line("  NAME STATE VERSION").is_none());
+        assert!(parse_wsl_distribution_line("").is_none());
     }
 }

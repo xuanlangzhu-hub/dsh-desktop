@@ -7,6 +7,7 @@
     "tauri": "tauri",
     "dev": "tauri dev",
     "prepare:runtime": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/prepare-runtime.ps1",
+    "prepare:wsl-runtime": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/prepare-wsl-runtime.ps1",
     "build": "tauri build",
     "portable": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/package-portable.ps1",
     "qa:vision-bridge": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File qa/vision-bridge-regression.ps1",

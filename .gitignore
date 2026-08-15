@@ -4,6 +4,9 @@
 *.exe
 *.log
 
+# Local test/backup scratch space
+/.tmp/
+
 # Dependency and build caches
 **/node_modules/
 **/target/
