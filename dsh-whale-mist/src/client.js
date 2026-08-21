@@ -721,31 +721,31 @@ window.__ModuleLoader__.load({
       }, "whale-mist: theme registration");
 
       ctx.effect(() => {
-        // The official settings scope adopts its persisted system/light/dark
-        // preference asynchronously during boot. Custom theme ids are not
-        // persisted by that scope, so keep this install-selected theme stable
-        // only while boot settles; manual choices remain respected afterwards.
-        let stabilizing = true;
+        // Current Harness releases may re-apply their persisted preference when
+        // model settings change. Whale Mist is the installed desktop theme,
+        // so retain it for the whole plugin lifetime instead of only during
+        // the first paint.
         let queued = false;
-        const settleTimer = window.setTimeout(() => {
-          stabilizing = false;
-        }, 1800);
         const off = ctx.on("theme/change", (snapshot) => {
-          if (!stabilizing || snapshot.active.id === THEME_ID || queued) return;
+          if (snapshot.active.id === THEME_ID || queued) return;
           queued = true;
           queueMicrotask(() => {
             queued = false;
-            if (stabilizing && ctx.theme.getTheme().active.id !== THEME_ID) {
+            if (ctx.theme.getTheme().active.id !== THEME_ID) {
               ctx.theme.setTheme(THEME_ID);
             }
           });
         });
+        const qaEnabled = new URLSearchParams(window.location.search).has("wm-status-qa");
+        const receiveThemeReset = (event) => {
+          if (qaEnabled) ctx.theme.setTheme(event.detail || "dark");
+        };
+        window.addEventListener("dsh-whale-mist:qa-theme-reset", receiveThemeReset);
         return () => {
-          stabilizing = false;
-          window.clearTimeout(settleTimer);
+          window.removeEventListener("dsh-whale-mist:qa-theme-reset", receiveThemeReset);
           off();
         };
-      }, "whale-mist: boot preference stabilization");
+      }, "whale-mist: active theme retention");
 
       ctx.effect(() => {
         const previous = document.querySelector(`style[data-plugin-css="${STYLE_ID}"]`);

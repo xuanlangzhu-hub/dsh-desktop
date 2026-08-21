@@ -12,7 +12,9 @@
 
 ## 本机启动
 
-在当前工作区双击 `Whale Harness Desktop.lnk` 默认使用 WSL2 后端；`Whale Harness Desktop (Windows).lnk` 保留为纯 Windows 备用入口。正式程序优先使用 `3210` 端口，被占用时自动回退到空闲端口；关闭窗口会回收其启动的完整 DSH 进程树。
+在当前工作区双击 `Whale Harness Desktop.lnk` 默认使用 WSL2 后端；`Whale Harness Desktop (Windows).lnk` 保留为纯 Windows 备用入口。正式程序优先使用 `3210` 端口，被占用时自动回退到空闲端口；关闭窗口会将应用隐藏到系统托盘并保持后端运行；从托盘菜单选择“退出”才会回收完整 DSH 进程树。
+
+> Windows 快捷方式必须从 Windows 本地路径（例如 `F:\deepseekharness`）启动。不要通过 `\\wsl.localhost\...` 双击 `.lnk` 或 `.cmd`；Windows Shell/PowerShell 读取 WSL UNC 启动文件可能长时间阻塞。WSL 原生项目目录只作为 Harness 后端工作区使用。
 
 ## 从源码构建
 
@@ -27,7 +29,7 @@ npm run build
 npm run portable
 ```
 
-`prepare:runtime` 会按锁文件安装 `@deepseek-ai/dsh@0.1.0-rc.6`，应用 vision-bridge v2，使用 Node 校验补丁后的 JavaScript，再裁掉与 Windows x64 无关的原生预编译件。任何补丁标记漂移都会直接中止构建，避免产出未桥接图片的安装包。安装包和便携目录最终整理到工作区的 `release/`。
+`prepare:runtime` 会按锁文件安装 `@deepseek-ai/dsh@0.1.1-rc.1`，应用 vision-bridge v2，使用 Node 校验补丁后的 JavaScript，再裁掉与 Windows x64 无关的原生预编译件。任何补丁标记漂移都会直接中止构建，避免产出未桥接图片的安装包。安装包和便携目录最终整理到工作区的 `release/`。
 
 ## 实验性 WSL2 后端
 
@@ -40,13 +42,14 @@ cd whale-desktop
 npm run prepare:wsl-runtime
 ```
 
-- 在 Ubuntu2 内创建 `~/.local/share/whale-harness/runtime`（自包含 Node v24.18.0 + `@deepseek-ai/dsh@0.1.0-rc.6` 的 Linux 原生依赖）
+- 在 Ubuntu2 内创建 `~/.local/share/whale-harness/runtime`（自包含 Node v24.18.0 + `@deepseek-ai/dsh@0.1.1-rc.1` 的 Linux 原生依赖）
 - 创建独立 Profile `~/.dsh/profiles/whale-desktop-wsl`，重新安装 Whale Mist 与 dsh-archived-sessions，并复制 Anchored Standard preset
 - 应用跨平台的 vision-bridge v2（`apply-vision-bridge.mjs`）
 
 启动：
 
 - 双击 `Whale Harness Desktop.lnk` 或 `启动 Whale Harness Desktop (WSL).cmd`（等价于 `WHALE_HARNESS_BACKEND=wsl`）
+- 默认工作区为 WSL 内的 `/home/hp/projects/deepseekharness`；如需其它目录，设置 `WHALE_WSL_WORKSPACE` 为 WSL 内绝对路径
 - `WHALE_HARNESS_WSL_DISTRO` 可选，指定非默认的 WSL2 发行版
 - 双击 `Whale Harness Desktop (Windows).lnk` 或 `启动 Whale Harness Desktop.cmd` 可使用纯 Windows 后端
 

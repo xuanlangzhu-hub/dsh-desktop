@@ -2,9 +2,11 @@
 setlocal EnableExtensions
 set "WHALE_HARNESS_WORKSPACE=%~dp0"
 set "WHALE_HARNESS_BACKEND=wsl"
-rem Use the same packaged desktop binary as the normal launcher. During local
-rem development, fall back to the latest release build until portable packaging
-rem has completed.
+rem The Linux backend works directly in the WSL-native project checkout.
+rem Override WHALE_WSL_WORKSPACE to point at another directory inside WSL.
+if not defined WHALE_WSL_WORKSPACE set "WHALE_WSL_WORKSPACE=/home/hp/projects/deepseekharness"
+rem Prefer the portable bundle (currently the tray build); keep the fresh
+rem source-build exe as a fallback for development checkouts.
 set "WHALE_DESKTOP_EXE=%~dp0release\Whale Harness Desktop Portable\Whale Harness Desktop.exe"
 if not exist "%WHALE_DESKTOP_EXE%" set "WHALE_DESKTOP_EXE=%~dp0whale-desktop\src-tauri\target\release\whale-harness-desktop.exe"
 if not exist "%WHALE_DESKTOP_EXE%" goto desktop_missing

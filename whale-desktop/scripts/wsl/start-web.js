@@ -30,6 +30,11 @@ const DSH_HOME = process.env.WHALE_WSL_DSH_HOME || join(HOME, ".dsh");
 const LOG_DIR = process.env.WHALE_WSL_LOG_DIR || join(RUNTIME_ROOT, "logs");
 const PID_FILE = process.env.WHALE_WSL_PID_FILE || join(RUNTIME_ROOT, "run", "dsh-web.pid");
 const LAUNCH_LOG = process.env.WHALE_WSL_LAUNCH_LOG || join(LOG_DIR, "dsh-web.launch.log");
+// Node 24 does not consume HTTP_PROXY/HTTPS_PROXY for fetch unless this flag is
+// enabled. WSL commonly inherits a Windows loopback proxy while its own DNS is
+// unavailable, so leaving the flag off makes dsh requests time out even though
+// curl works. It is harmless when no proxy variables are configured.
+const NODE_USE_ENV_PROXY = process.env.NODE_USE_ENV_PROXY || "1";
 
 for (const file of [NODE, ENTRY]) {
   if (!existsSync(file)) fail(`required file is missing: ${file}`);
@@ -71,17 +76,19 @@ writeFileSync(LAUNCH_LOG, [
   `workspace=${WORKSPACE}`,
   `host=${HOST}`,
   `port=${PORT}`,
+  `nodeUseEnvProxy=${NODE_USE_ENV_PROXY}`,
   `pidFile=${PID_FILE}`,
   `startedAt=${new Date().toISOString()}`,
   "",
 ].join("\n"), "utf8");
 
-const child = spawn(NODE, [ENTRY, "--profile", PROFILE, "--host", HOST, "--port", PORT], {
+const child = spawn(NODE, [ENTRY, "--profile", PROFILE, "--no-open", "--host", HOST, "--port", PORT], {
   cwd: WORKSPACE,
   env: {
     ...process.env,
     DSH_HOME,
     NO_COLOR: "1",
+    NODE_USE_ENV_PROXY,
     WHALE_HARNESS_DESKTOP: "1",
   },
   detached: true,

@@ -1,6 +1,17 @@
 $ErrorActionPreference = "Stop"
 
 $workspace = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+
+# cmd.exe cannot use a UNC path as its working directory. In particular, a
+# shortcut generated through \\wsl.localhost would make Windows enter WSL to
+# read a batch file which then starts a Windows app that enters WSL again. That
+# round-trip can stall Explorer and create a burst of console/WSL processes.
+# Keep every Windows launcher and shortcut on a local Windows drive; the WSL
+# project path is passed separately through WHALE_WSL_WORKSPACE by the launcher.
+if ($workspace.StartsWith('\\')) {
+    throw "Refusing to create Windows shortcuts from a UNC/WSL path: $workspace. Run this script from the Windows checkout (for example F:\deepseekharness)."
+}
+
 $icon = Join-Path $workspace "DeepSeek-Harness.ico"
 $shell = New-Object -ComObject WScript.Shell
 $wslLaunchers = @(Get-ChildItem -LiteralPath $workspace -File -Filter "*Whale Harness Desktop (WSL).cmd")

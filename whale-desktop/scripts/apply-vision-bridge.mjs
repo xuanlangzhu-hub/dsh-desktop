@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * vision-bridge v2 — cross-platform patch entry for DeepSeek Harness rc.6.
+ * vision-bridge v2 — cross-platform compatibility patch for DeepSeek Harness 0.1 prereleases.
  *
  * Patches exactly two upstream packages in a materialized node_modules tree:
  *   - @deepseek-ai/dsh-host-apiproxy/lib/index.js
@@ -80,6 +80,21 @@ const ADAPTER_LOOP_REPLACEMENT = [
 ].join("\n");
 const ADAPTER_LOOP_PATTERN = /for \(const message of messages\) \{\s*assertTextOnly\(message\.content\);\s*if \(message\.role === "system"\) \{\s*wire\.push\(\{\s*role: "system",\s*content: flattenText\(message\.content\)\s*\}\);\s*continue;\s*\}\s*if \(message\.role === "assistant"\) \{\s*wire\.push\(serializeAssistant\(message\)\);\s*continue;\s*\}\s*const toolResults = message\.content\.filter\(\(block\) => block\.type === "tool-result"\);\s*const text = flattenText\(message\.content\);/;
 
+const ADAPTER_PREFLIGHT_MARKER = "[vision-bridge-v2] preserve native image support";
+const ADAPTER_PREFLIGHT_REPLACEMENT = [
+  "\t\t\tconst hasImages = options.messages.some((message) => contentHasImage(message.content));",
+  "\t\t\tlet attachments;",
+  "\t\t\tif (hasImages) {",
+  "\t\t\t\t// [vision-bridge-v2] preserve native image support for declared vision models; text-only models use the path bridge.",
+  "\t\t\t\tconst supportsNativeImages = connection.models.find((entry) => entry.id === options.model)?.inputModalities?.includes(\"image\") === true;",
+  "\t\t\t\tif (supportsNativeImages) {",
+  "\t\t\t\t\tattachments = this.config.resolveAttachments?.();",
+  "\t\t\t\t\tif (attachments === void 0) throw new LlmError(\"DeepSeek image conversion requires the durable attachment service.\", \"UNSUPPORTED_CONTENT\");",
+  "\t\t\t\t}",
+  "\t\t\t}",
+].join("\n");
+const ADAPTER_PREFLIGHT_PATTERN = /const hasImages = options\.messages\.some\(\(message\) => contentHasImage\(message\.content\)\);\s*let attachments;\s*if \(hasImages\) \{\s*if \(connection\.models\.find\(\(entry\) => entry\.id === options\.model\)\?\.inputModalities\?\.includes\("image"\) !== true\) throw new LlmError\(`DeepSeek model "\$\{options\.model\}" does not accept image input\.`, "UNSUPPORTED_CONTENT"\);\s*attachments = this\.config\.resolveAttachments\?\.\(\);\s*if \(attachments === void 0\) throw new LlmError\("DeepSeek image conversion requires the durable attachment service\.", "UNSUPPORTED_CONTENT"\);\s*\}/;
+
 function replaceExactlyOnce(content, pattern, replacement, label) {
   const matches = content.match(new RegExp(pattern.source, pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`));
   const count = matches === null ? 0 : matches.length;
@@ -106,14 +121,16 @@ function planApiProxyPatch(path, content) {
 function planDeepSeekPatch(path, content) {
   const hasFunctionMarker = content.includes(ADAPTER_FUNCTION_MARKER);
   const hasLoopBridge = content.includes("const content = bridgeImageBlocks(message.content);");
-  if (hasFunctionMarker && hasLoopBridge) {
+  const hasPreflightMarker = content.includes(ADAPTER_PREFLIGHT_MARKER);
+  if (hasFunctionMarker && hasLoopBridge && hasPreflightMarker) {
     return { path, content, changed: false };
   }
-  if (content.includes(V2_MARKER) || content.includes(ADAPTER_LOOP_MARKER)) {
+  if (content.includes(V2_MARKER) || content.includes(ADAPTER_LOOP_MARKER) || content.includes(ADAPTER_PREFLIGHT_MARKER)) {
     throw new Error(`vision-bridge v2 partial marker set in ${path}`);
   }
   let patched = replaceExactlyOnce(content, ADAPTER_FUNCTION_PATTERN, ADAPTER_FUNCTION_REPLACEMENT, "dsh-llm-deepseek assertTextOnly");
   patched = replaceExactlyOnce(patched, ADAPTER_LOOP_PATTERN, ADAPTER_LOOP_REPLACEMENT, "dsh-llm-deepseek serializeMessages loop");
+  patched = replaceExactlyOnce(patched, ADAPTER_PREFLIGHT_PATTERN, ADAPTER_PREFLIGHT_REPLACEMENT, "dsh-llm-deepseek image preflight");
   return { path, content: patched, changed: true };
 }
 
