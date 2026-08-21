@@ -93,7 +93,8 @@ for manifest in package.json package-lock.json; do
   fi
 done
 echo "-- npm ci (Linux native install, no Windows node_modules copied)"
-(cd "$DSH_DIR" && "$NPM_BIN" ci --omit=dev --no-audit --no-fund) || fail "npm ci failed in $DSH_DIR"
+(cd "$DSH_DIR" && # npm 11 can stall on this plugin peer graph; npm 10 installs the complete peer tree and runs required native scripts.
+"$NODE_DIR/bin/npx" --yes "npm@10.9.4" ci --omit=dev --no-audit --no-fund) || fail "npm ci failed in $DSH_DIR"
 
 # ── vision-bridge v2 (cross-platform .mjs entry) ─────────────────────────────
 echo "-- applying vision-bridge v2"

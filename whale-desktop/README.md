@@ -5,9 +5,10 @@ pinned Node.js and DeepSeek Harness runtime, starts the official WebUI on a
 private localhost port, navigates the WebView to it, and owns process cleanup
 when the app exits. It does not call `npx` or download packages at startup.
 
-Version `0.3.0` includes vision-bridge v2. Image blocks remain in the session so
-the official client can render previews, while the text-only DeepSeek adapter
-serializes each image into a note containing its attachment ID and local path.
+Version `0.3.0` includes the 0.1.1-rc.1-compatible vision-bridge v2. Declared vision
+models keep the official native image pipeline; text-only DeepSeek models keep
+image blocks in the session for previews and serialize them into notes containing
+the attachment ID and local path.
 The runtime build fails if upstream package markers drift instead of silently
 shipping an unpatched bundle.
 
@@ -24,9 +25,14 @@ npm run prepare:wsl-runtime       # one-time; installs into ~/.local/share/whale
 
 Or set `WHALE_HARNESS_BACKEND=wsl` (and optionally `WHALE_HARNESS_WSL_DISTRO`)
 when launching the exe. Unset variables keep the exact Windows behavior.
+`WHALE_WSL_WORKSPACE` accepts a WSL-native absolute path (the WSL launcher
+defaults to `/home/hp/projects/deepseekharness`); when unset, a Windows
+workspace is translated to `/mnt/<drive>/...`.
+Keep the Windows `.lnk` and `.cmd` launch entry points on a local Windows drive;
+do not launch them through `\\wsl.localhost\...`. The UNC path is only for
+browsing files, not for starting the desktop shell.
 The WSL backend uses `~/.dsh/profiles/whale-desktop-wsl` and binds
-`127.0.0.1` only; the desktop converts `F:\...` workspaces to `/mnt/f/...`
-(works on Windows drives, but Linux projects under `~/projects` are faster).
+`127.0.0.1` only; Linux projects under `~/projects` run at native speed.
 The WSL runtime requires `build-essential` inside Ubuntu2 because `node-pty`
 ships no Linux prebuilds and compiles from source.
 
@@ -62,5 +68,5 @@ none of them are included in the executable, portable folder, or installer.
 Bundled versions:
 
 - Node.js `v24.18.0`
-- `@deepseek-ai/dsh` `0.1.0-rc.6`
-- Whale Mist `0.2.0`
+- `@deepseek-ai/dsh` `0.1.1-rc.1`
+- Whale Mist `0.2.1`

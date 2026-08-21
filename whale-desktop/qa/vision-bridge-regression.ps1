@@ -60,6 +60,17 @@ function serializeMessages(messages) {
 	}
 	return wire;
 }
+function stream(options) {
+	const connection = { models: [] };
+	const hasImages = options.messages.some((message) => contentHasImage(message.content));
+	let attachments;
+	if (hasImages) {
+		if (connection.models.find((entry) => entry.id === options.model)?.inputModalities?.includes("image") !== true) throw new LlmError(`DeepSeek model "${options.model}" does not accept image input.`, "UNSUPPORTED_CONTENT");
+		attachments = this.config.resolveAttachments?.();
+		if (attachments === void 0) throw new LlmError("DeepSeek image conversion requires the durable attachment service.", "UNSUPPORTED_CONTENT");
+	}
+	return attachments;
+}
 '@
 
 function Write-Fixture([string]$modulesRoot, [string]$apiProxyContent = $apiProxyFixture) {

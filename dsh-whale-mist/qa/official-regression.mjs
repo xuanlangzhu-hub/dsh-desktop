@@ -19,6 +19,7 @@ const browser = spawn(edge, [
   "--disable-gpu",
   "--disable-extensions",
   "--disable-sync",
+  "--no-proxy-server",
   "--no-first-run",
   "--no-default-browser-check",
   "--disable-default-apps",
@@ -114,6 +115,7 @@ const uiState = `(() => {
   };
 })()`;
 
+main: {
 try {
   await cdp("Page.enable");
   await cdp("Runtime.enable");
@@ -135,6 +137,152 @@ try {
   }
   if (!initial.hit || initial.width < 28 || initial.height < 28) {
     throw new Error(`Initial official sidebar toggle is not usable: ${JSON.stringify(initial)}`);
+  }
+  // Harness may re-apply its persisted system theme while synchronizing model
+  // settings. Simulate that late reset and require Whale Mist to recover.
+  await evaluate(`window.dispatchEvent(new CustomEvent('dsh-whale-mist:qa-theme-reset', { detail: 'dark' }))`);
+  await delay(180);
+  const recoveredTheme = await evaluate(uiState);
+  if (!recoveredTheme?.active || !recoveredTheme.styleTag || !recoveredTheme.inputFillOpaque) {
+    throw new Error(`Whale Mist did not recover after a late theme reset: ${JSON.stringify(recoveredTheme)}`);
+  }
+  if (process.env.DSH_THEME_RETENTION_ONLY === "1") {
+    let anchoredStandardVisible = null;
+    if (process.env.DSH_EXPECT_ANCHORED_STANDARD === "1") {
+      const presetTarget = await evaluate(`(() => {
+        const element = [...document.querySelectorAll('button')]
+          .find((button) => /(标准模式|Standard mode|Anchored Standard)/i.test((button.textContent || '').trim()));
+        if (!element) return null;
+        const rect = element.getBoundingClientRect();
+        return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+      })()`);
+      if (!presetTarget) throw new Error("Agent preset selector is missing during preset visibility QA.");
+      await clickAt(presetTarget);
+      for (let attempt = 0; attempt < 60; attempt += 1) {
+        anchoredStandardVisible = await evaluate(`/Anchored Standard/i.test(document.body?.innerText || '')`);
+        if (anchoredStandardVisible) break;
+        await delay(100);
+      }
+      if (!anchoredStandardVisible) throw new Error("Anchored Standard did not register in the Agent preset selector.");
+      await cdp("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape" });
+      await cdp("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape" });
+      await delay(120);
+    }
+    let visionModelSelected = null;
+    if (process.env.DSH_EXPECT_VISION_MODEL === "1") {
+      const modelTarget = await evaluate(`(() => {
+        const element = [...document.querySelectorAll('button')]
+          .find((button) => /DeepSeek-V4-(?:Flash|Pro)/i.test((button.textContent || '').trim()));
+        if (!element) return null;
+        const rect = element.getBoundingClientRect();
+        return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+      })()`);
+      if (!modelTarget) throw new Error("Model selector is missing during Vision model QA.");
+      await clickAt(modelTarget);
+      await delay(120);
+      const catalogTarget = await evaluate(`(() => {
+        const element = [...document.querySelectorAll('button[role="menuitem"], [role="menuitem"]')]
+          .find((candidate) => /(?:模型|Model).*DeepSeek-V4/i.test((candidate.textContent || '').trim()));
+        if (!element) return null;
+        const rect = element.getBoundingClientRect();
+        return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+      })()`);
+      if (!catalogTarget) throw new Error("Model catalog submenu is missing during Vision model QA.");
+      await clickAt(catalogTarget);
+      let visionTarget = null;
+      for (let attempt = 0; attempt < 60; attempt += 1) {
+        visionTarget = await evaluate(`(() => {
+          const element = [...document.querySelectorAll('button, [role="option"], [role="menuitem"]')]
+            .find((candidate) => /DeepSeek-V4-Flash-Vision-Exp/i.test((candidate.textContent || '').trim()));
+          if (!element) return null;
+          const rect = element.getBoundingClientRect();
+          return rect.width > 0 && rect.height > 0
+            ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
+            : null;
+        })()`);
+        if (visionTarget) break;
+        await delay(100);
+      }
+      if (!visionTarget) throw new Error("DeepSeek-V4-Flash-Vision-Exp did not register in the model selector.");
+      await clickAt(visionTarget);
+      await delay(500);
+      const afterVisionSwitch = await evaluate(`({
+        selected: [...document.querySelectorAll('button')]
+          .some((button) => /DeepSeek-V4-Flash-Vision-Exp/i.test((button.textContent || '').trim())),
+        active: document.body?.classList.contains('dsh-whale-mist-active') ?? false,
+        styleTag: Boolean(document.querySelector('style[data-plugin-css="dsh-whale-mist/theme.css"]')),
+      })`);
+      if (!afterVisionSwitch.selected || !afterVisionSwitch.active || !afterVisionSwitch.styleTag) {
+        throw new Error(`Vision model switch lost selection or Whale Mist: ${JSON.stringify(afterVisionSwitch)}`);
+      }
+      visionModelSelected = true;
+    }
+    let imageDropAccepted = null;
+    if (process.env.DSH_EXPECT_IMAGE_DROP === "1") {
+      const beforeDrop = await evaluate(`document.querySelectorAll('img[src^="blob:"]').length`);
+      const dragStarted = await evaluate(`(() => {
+        const base64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2nWQAAAAASUVORK5CYII=';
+        const bytes = Uint8Array.from(atob(base64), char => char.charCodeAt(0));
+        const file = new File([bytes], 'drag-drop-qa.png', { type: 'image/png' });
+        const transfer = new DataTransfer();
+        transfer.items.add(file);
+        window.__dshImageDropQaTransfer = transfer;
+        return document.dispatchEvent(new DragEvent('dragenter', {
+          bubbles: true, cancelable: true, dataTransfer: transfer, clientX: 720, clientY: 480,
+        })) === false;
+      })()`);
+      if (!dragStarted) throw new Error("Official composer did not prevent the synthetic image dragenter event.");
+      await delay(120);
+      const overlayVisible = await evaluate(`/((拖放|拖入|Drop).*(图片|image)|(图片|image).*(拖动|拖放|拖入|drop))/i.test(document.body?.innerText || '')`);
+      if (!overlayVisible) throw new Error("Official image drop overlay did not appear after dragenter.");
+      const dropAccepted = await evaluate(`(() => {
+        const transfer = window.__dshImageDropQaTransfer;
+        if (!(transfer instanceof DataTransfer)) return false;
+        document.dispatchEvent(new DragEvent('dragover', {
+          bubbles: true, cancelable: true, dataTransfer: transfer, clientX: 720, clientY: 480,
+        }));
+        const prevented = document.dispatchEvent(new DragEvent('drop', {
+          bubbles: true, cancelable: true, dataTransfer: transfer, clientX: 720, clientY: 480,
+        })) === false;
+        delete window.__dshImageDropQaTransfer;
+        return prevented;
+      })()`);
+      if (!dropAccepted) throw new Error("Official composer did not prevent the synthetic image drop event.");
+      let preview = null;
+      for (let attempt = 0; attempt < 60; attempt += 1) {
+        preview = await evaluate(`(() => {
+          const image = [...document.querySelectorAll('img[src^="blob:"]')]
+            .find((candidate) => /drag-drop-qa\.png/i.test(candidate.alt || candidate.getAttribute('aria-label') || ''));
+          return image ? { src: image.src, alt: image.alt } : null;
+        })()`);
+        if (preview) break;
+        await delay(100);
+      }
+      if (!preview || beforeDrop >= await evaluate(`document.querySelectorAll('img[src^="blob:"]').length`)) {
+        throw new Error(`Dropped image preview did not enter the composer: ${JSON.stringify({ beforeDrop, preview })}`);
+      }
+      imageDropAccepted = true;
+    }
+    let archivedSessionsVisible = null;
+    if (process.env.DSH_EXPECT_ARCHIVED_SESSIONS === "1") {
+      const settingsTarget = await evaluate(`(() => {
+        const element = [...document.querySelectorAll('button')]
+          .find((button) => /^(设置|Settings)$/.test((button.textContent || '').trim()));
+        if (!element) return null;
+        const rect = element.getBoundingClientRect();
+        return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+      })()`);
+      if (!settingsTarget) throw new Error("Settings trigger is missing during plugin visibility QA.");
+      await clickAt(settingsTarget);
+      for (let attempt = 0; attempt < 60; attempt += 1) {
+        archivedSessionsVisible = await evaluate(`/(会话管理|Session management|归档会话|No archived sessions|Archived)/i.test(document.body?.innerText || '')`);
+        if (archivedSessionsVisible) break;
+        await delay(100);
+      }
+      if (!archivedSessionsVisible) throw new Error("Archived Sessions did not register in Settings.");
+    }
+    console.log(`PASS Whale Mist theme retention: ${JSON.stringify({ initial, recoveredTheme, anchoredStandardVisible, visionModelSelected, imageDropAccepted, archivedSessionsVisible })}`);
+    break main;
   }
 
   await clickAt(initial);
@@ -401,11 +549,12 @@ try {
     throw new Error(`Reset did not restore Whale Mist defaults: ${JSON.stringify(reset)}`);
   }
 
-  console.log(`PASS Whale Mist official UI: ${JSON.stringify({ initial, collapsed, expanded, sessionTarget, conversation, status: { runningStatus, waitingStatus, completeStatus, clearedStatus }, trajectory, appearance, deepApplied, persisted, reset, screenshots: [output, statusOutput, trajectoryOutput, settingsOutput] })}`);
+  console.log(`PASS Whale Mist official UI: ${JSON.stringify({ initial, recoveredTheme, collapsed, expanded, sessionTarget, conversation, status: { runningStatus, waitingStatus, completeStatus, clearedStatus }, trajectory, appearance, deepApplied, persisted, reset, screenshots: [output, statusOutput, trajectoryOutput, settingsOutput] })}`);
 } finally {
   try {
     await Promise.race([cdp("Browser.close"), delay(1000)]);
   } catch {}
   socket.close();
   browser.kill();
+}
 }

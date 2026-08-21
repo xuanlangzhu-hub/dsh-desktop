@@ -21,7 +21,8 @@ Copy-Item -LiteralPath $nodeCommand.Source -Destination (Join-Path $nodeRoot 'no
 
 Push-Location $dshRoot
 try {
-    npm ci --omit=dev --no-audit --no-fund
+    # npm 11.16 can stall while resolving the prerelease plugin peer graph; pin npm 10 for a complete, reproducible install.
+    npx --yes npm@10.9.4 ci --omit=dev --no-audit --no-fund
     if ($LASTEXITCODE -ne 0) {
         throw "npm ci failed with exit code $LASTEXITCODE"
     }

@@ -1,4 +1,4 @@
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
 use serde::Serialize;
 use std::{
@@ -12,7 +12,11 @@ use std::{
     thread,
     time::Duration,
 };
-use tauri::{AppHandle, Manager, State, WebviewWindow};
+use tauri::{
+    AppHandle, Manager, State, WebviewWindow,
+    menu::{Menu, MenuItem},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+};
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
@@ -154,6 +158,29 @@ fn windows_to_wsl_path(path: &Path) -> Result<String, String> {
     } else {
         Ok(format!("/mnt/{drive}/{rest}"))
     }
+}
+
+/// Resolve the workspace handed to the Linux dsh process.
+///
+/// `WHALE_WSL_WORKSPACE` (already a WSL path) wins; otherwise the Windows
+/// workspace directory is translated to its `/mnt/<drive>/...` form. The
+/// returned flag reports whether the workspace lives on the Linux filesystem,
+/// which changes only the startup hint (Windows-drive workspaces are slower).
+fn resolve_wsl_workspace(
+    windows_workspace: &Path,
+    explicit_wsl_workspace: Option<&str>,
+) -> Result<(String, bool), String> {
+    if let Some(explicit) = explicit_wsl_workspace
+        && !explicit.is_empty()
+    {
+        if !explicit.starts_with('/') || explicit.contains('\\') {
+            return Err(format!(
+                "WHALE_WSL_WORKSPACE 必须是 WSL 内绝对路径（例如 /home/hp/projects/deepseekharness），收到：{explicit}"
+            ));
+        }
+        return Ok((explicit.to_string(), true));
+    }
+    Ok((windows_to_wsl_path(windows_workspace)?, false))
 }
 
 fn ensure_wsl_runtime_ready(distro: &str) -> Result<(), String> {
@@ -667,6 +694,7 @@ fn spawn_harness(app: &AppHandle, port: u16) -> Result<(Child, PathBuf), String>
         .args([
             "--profile",
             DESKTOP_PROFILE,
+            "--no-open",
             "--host",
             "127.0.0.1",
             "--port",
@@ -705,12 +733,21 @@ fn spawn_harness(app: &AppHandle, port: u16) -> Result<(Child, PathBuf), String>
     Ok((child, stderr_path))
 }
 
-fn spawn_wsl_harness(app: &AppHandle, distro: &str, port: u16) -> Result<(Child, PathBuf), String> {
+fn spawn_wsl_harness(
+    app: &AppHandle,
+    distro: &str,
+    port: u16,
+) -> Result<(Child, PathBuf, bool), String> {
     // Runtime readiness is validated once in launch_backend before port
     // probing, so a missing WSL runtime fails with a readable preparation
     // error instead of a confusing node/port-probe status.
     let workspace = workspace_dir();
-    let workspace_wsl = windows_to_wsl_path(&workspace)?;
+    let explicit_workspace = env::var("WHALE_WSL_WORKSPACE")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let (workspace_wsl, native_workspace) =
+        resolve_wsl_workspace(&workspace, explicit_workspace.as_deref())?;
     let (stdout, stderr, stderr_path) = log_files(app)?;
     let port_text = port.to_string();
 
@@ -741,18 +778,23 @@ fn spawn_wsl_harness(app: &AppHandle, distro: &str, port: u16) -> Result<(Child,
     #[cfg(windows)]
     command.creation_flags(CREATE_NO_WINDOW);
 
+    let note = if native_workspace {
+        "workspace lives on the WSL filesystem"
+    } else {
+        "workspace lives on a Windows drive; Linux projects are faster under ~/projects"
+    };
     let launch_log = stderr_path.with_file_name("dsh-web.launch.log");
     let _ = fs::write(
         &launch_log,
         format!(
-            "backend=wsl\ndistro={distro}\nprofile={WSL_PROFILE}\nworkspace={}\nworkspaceWsl={workspace_wsl}\nport={port}\nnote=workspace lives on a Windows drive; Linux projects are faster under ~/projects\ncommand={command:?}\n",
+            "backend=wsl\ndistro={distro}\nprofile={WSL_PROFILE}\nworkspace={}\nworkspaceWsl={workspace_wsl}\nport={port}\nnote={note}\ncommand={command:?}\n",
             workspace.display()
         ),
     );
     let child = command
         .spawn()
         .map_err(|error| format!("无法通过 WSL 发行版 {distro} 启动 DeepSeek Harness：{error}"))?;
-    Ok((child, stderr_path))
+    Ok((child, stderr_path, native_workspace))
 }
 
 fn stop_backend(state: &DesktopState) {
@@ -817,13 +859,13 @@ fn launch_backend(app: &AppHandle, state: &DesktopState) -> Result<(), String> {
             let distro = resolved_wsl_distro
                 .as_deref()
                 .ok_or_else(|| "WSL 发行版解析状态丢失".to_string())?;
-            let (child, stderr_path) = spawn_wsl_harness(app, distro, port)?;
-            (
-                child,
-                stderr_path,
-                Some(distro.to_string()),
-                "正在启动 WSL 后端…（工作区位于 Windows 磁盘，速度可能较慢）",
-            )
+            let (child, stderr_path, native_workspace) = spawn_wsl_harness(app, distro, port)?;
+            let detail = if native_workspace {
+                "正在启动 WSL 后端…"
+            } else {
+                "正在启动 WSL 后端…（工作区位于 Windows 磁盘，速度可能较慢）"
+            };
+            (child, stderr_path, Some(distro.to_string()), detail)
         }
     };
     let generation = {
@@ -919,13 +961,73 @@ fn restart_backend(app: AppHandle, state: State<'_, DesktopState>) -> Result<(),
     launch_backend(&app, &state)
 }
 
+fn show_main_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+
+/// Keep the backend alive in the system tray: closing the main window only
+/// hides it, and the tray menu's "退出" performs the real application exit
+/// (which triggers the existing backend cleanup path).
+fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
+    let open = MenuItem::with_id(
+        app,
+        "open",
+        "显示 Whale Harness Desktop 0.1.1 RC1 Test",
+        true,
+        None::<&str>,
+    )?;
+    let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&open, &quit])?;
+    let icon = app
+        .default_window_icon()
+        .cloned()
+        .ok_or_else(|| tauri::Error::AssetNotFound("missing default window icon".into()))?;
+    TrayIconBuilder::with_id("whale-harness-tray")
+        .icon(icon)
+        .tooltip("Whale Harness Desktop 0.1.1 RC1 Test")
+        .menu(&menu)
+        .show_menu_on_left_click(false)
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            "open" => show_main_window(app),
+            "quit" => app.exit(0),
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                show_main_window(tray.app_handle());
+            }
+        })
+        .build(app)?;
+    Ok(())
+}
+
 fn main() {
     let state = DesktopState::default();
     let shutdown_state = state.clone();
-    let app = tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    // Tauri requires single-instance to be the first registered plugin. A
+    // second taskbar/shortcut launch wakes the tray-resident window instead
+    // of starting another desktop shell and backend on a fallback port.
+    #[cfg(any(target_os = "macos", windows, target_os = "linux"))]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(
+        |app, _arguments, _working_directory| show_main_window(app),
+    ));
+    let app = builder
         .manage(state.clone())
         .invoke_handler(tauri::generate_handler![desktop_status, restart_backend])
         .setup(move |app| {
+            if let Err(error) = setup_tray(app) {
+                eprintln!("failed to create system tray: {error}");
+            }
             if let Err(error) = launch_backend(app.handle(), &state) {
                 update_status(&state, "failed", &error, None);
                 if let Some(window) = app.get_webview_window("main") {
@@ -933,6 +1035,16 @@ fn main() {
                 }
             }
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event
+                && window.label() == "main"
+            {
+                // Hide to tray instead of quitting. The backend keeps running;
+                // "退出" in the tray menu performs the real exit and cleanup.
+                api.prevent_close();
+                let _ = window.hide();
+            }
         })
         .build(tauri::generate_context!())
         .expect("failed to build Whale Harness Desktop");
@@ -951,7 +1063,7 @@ fn main() {
 mod tests {
     use super::{
         choose_port, package_version_from_manifest, parse_wsl_distribution_line,
-        prepare_profile_directory, windows_to_wsl_path,
+        prepare_profile_directory, resolve_wsl_workspace, windows_to_wsl_path,
     };
     use std::{
         fs,
@@ -1088,6 +1200,26 @@ mod tests {
         assert_eq!(windows_to_wsl_path(Path::new(r"E:\")).unwrap(), "/mnt/e");
         assert!(windows_to_wsl_path(Path::new(r"\\server\share")).is_err());
         assert!(windows_to_wsl_path(Path::new("relative")).is_err());
+    }
+
+    #[test]
+    fn resolves_native_wsl_workspace_over_drive_translation() {
+        let windows = Path::new(r"F:\deepseekharness");
+        let (path, native) = resolve_wsl_workspace(windows, None).unwrap();
+        assert_eq!(path, "/mnt/f/deepseekharness");
+        assert!(!native);
+
+        let explicit = "/home/hp/projects/deepseekharness";
+        let (path, native) = resolve_wsl_workspace(windows, Some(explicit)).unwrap();
+        assert_eq!(path, explicit);
+        assert!(native);
+
+        assert_eq!(
+            resolve_wsl_workspace(windows, Some("")).unwrap().0,
+            "/mnt/f/deepseekharness"
+        );
+        assert!(resolve_wsl_workspace(windows, Some("relative/path")).is_err());
+        assert!(resolve_wsl_workspace(windows, Some(r"C:\Users\Example")).is_err());
     }
 
     #[test]
