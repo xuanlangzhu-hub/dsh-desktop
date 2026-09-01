@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Whale Harness Desktop 0.1.1 RC1 Test",
+  "productName": "Whale Harness Desktop",
   "version": "0.3.0",
-  "identifier": "ai.deepseek.harness.whale.rc11rc1test",
+  "identifier": "ai.deepseek.harness.whale",
   "build": {
     "frontendDist": "../dist"
   },
@@ -11,7 +11,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Whale Harness Desktop 0.1.1 RC1 Test",
+        "title": "Whale Harness Desktop",
         "url": "index.html",
         "width": 1280,
         "height": 820,

@@ -82,7 +82,16 @@ writeFileSync(LAUNCH_LOG, [
   "",
 ].join("\n"), "utf8");
 
-const child = spawn(NODE, [ENTRY, "--profile", PROFILE, "--no-open", "--host", HOST, "--port", PORT], {
+const child = spawn(NODE, [
+  ENTRY,
+  "--profile",
+  PROFILE,
+  "--host",
+  HOST,
+  "--port",
+  PORT,
+  "--no-open",
+], {
   cwd: WORKSPACE,
   env: {
     ...process.env,

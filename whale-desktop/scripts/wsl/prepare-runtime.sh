@@ -86,19 +86,33 @@ echo "pnpm    : $("$PNPM_BIN" --version)"
 DSH_DIR="$RUNTIME_ROOT/dsh"
 mkdir -p "$DSH_DIR"
 for manifest in package.json package-lock.json; do
-  src="$PROJECT_ROOT/runtime/dsh/$manifest"
+  src="$PROJECT_ROOT/runtime/dsh-wsl/$manifest"
   dst="$DSH_DIR/$manifest"
   if [[ ! -f "$dst" ]] || ! cmp -s "$src" "$dst"; then
     cp -f "$src" "$dst"
   fi
 done
 echo "-- npm ci (Linux native install, no Windows node_modules copied)"
-(cd "$DSH_DIR" && # npm 11 can stall on this plugin peer graph; npm 10 installs the complete peer tree and runs required native scripts.
-"$NODE_DIR/bin/npx" --yes "npm@10.9.4" ci --omit=dev --no-audit --no-fund) || fail "npm ci failed in $DSH_DIR"
+(cd "$DSH_DIR" && "$NPM_BIN" ci --omit=dev --legacy-peer-deps --no-audit --no-fund) || fail "npm ci failed in $DSH_DIR"
 
-# ── vision-bridge v2 (cross-platform .mjs entry) ─────────────────────────────
-echo "-- applying vision-bridge v2"
-"$NODE_BIN" "$PROJECT_ROOT/scripts/apply-vision-bridge.mjs" --modules-root "$DSH_DIR/node_modules" || fail "vision-bridge v2 failed"
+# ── image compatibility ─────────────────────────────────────────────────────
+# vision-bridge v2 patches rc.6 internals and intentionally fails closed when
+# upstream markers drift. rc.1/rc.2 provide the official Vision/Files API
+# pipeline, so applying the legacy bridge there would be both redundant and
+# unsafe. Keep the rc.6 path only for an explicit rollback.
+DSH_VERSION="$("$NODE_BIN" -p "require('$DSH_DIR/node_modules/@deepseek-ai/dsh/package.json').version")"
+case "$DSH_VERSION" in
+  0.1.0-rc.6)
+    echo "-- applying legacy vision-bridge v2 for dsh $DSH_VERSION"
+    "$NODE_BIN" "$PROJECT_ROOT/scripts/apply-vision-bridge.mjs" --modules-root "$DSH_DIR/node_modules" || fail "vision-bridge v2 failed"
+    ;;
+  0.1.1-rc.1|0.1.1-rc.2)
+    echo "-- using official Vision/Files API image pipeline in dsh $DSH_VERSION"
+    ;;
+  *)
+    fail "unsupported dsh version $DSH_VERSION; review image compatibility before preparing the runtime"
+    ;;
+esac
 
 echo "-- native module smoke checks"
 (cd "$DSH_DIR" && "$NODE_BIN" -e '
@@ -109,13 +123,17 @@ for (const name of names) {
   console.log(name + " loaded ok");
 }
 ') || fail "one of node-pty/sharp/landlock failed to load"
-# node-pty ships only Windows/macOS prebuilds upstream; on Linux it compiles
-# build/Release/pty.node from source. Remove the foreign prebuild dirs so the
-# runtime only ever loads the Linux binary.
-for foreign in darwin-arm64 darwin-x64 win32-arm64 win32-x64; do
+# rc.6 compiles node-pty to build/Release while rc.2 ships a Linux x64
+# prebuild. Remove foreign architectures and accept either verified location.
+for foreign in darwin-arm64 darwin-x64 win32-arm64 win32-x64 linux-arm64; do
   rm -rf "$DSH_DIR/node_modules/node-pty/prebuilds/$foreign"
 done
-test -f "$DSH_DIR/node_modules/node-pty/build/Release/pty.node" || fail "node-pty Linux binary is missing"
+NODE_PTY_NATIVE="$DSH_DIR/node_modules/node-pty/prebuilds/linux-x64/pty.node"
+if [[ ! -f "$NODE_PTY_NATIVE" ]]; then
+  NODE_PTY_NATIVE="$DSH_DIR/node_modules/node-pty/build/Release/pty.node"
+fi
+test -f "$NODE_PTY_NATIVE" || fail "node-pty Linux binary is missing"
+file "$NODE_PTY_NATIVE" | grep -q 'ELF 64-bit.*x86-64' || fail "node-pty binary is not Linux x64: $NODE_PTY_NATIVE"
 NATIVE_FILES="$(find "$DSH_DIR/node_modules" -name '*.node' -type f | head -n 200)"
 if [[ -z "$NATIVE_FILES" ]]; then
   fail "no native .node binaries found after npm ci"

@@ -25,7 +25,7 @@ npx --yes @deepseek-ai/dsh plugin --profile web add ./dsh-whale-mist
 - 高频交互没有装饰性进场动画；按钮只有 120ms 的按压反馈。
 - 支持 `prefers-reduced-motion`、`prefers-reduced-transparency` 和高对比度。
 
-当前兼容目标锁定 DeepSeek Harness `0.1.0-rc.6`。
+当前兼容目标为 Windows fallback 的 DeepSeek Harness `0.1.0-rc.6` 与 WSL2 runtime 的 `0.1.1-rc.2`。
 
 ## 回归检查
 

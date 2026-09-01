@@ -37,8 +37,8 @@ enum Backend {
 }
 
 impl Backend {
-    fn from_environment() -> Result<Self, String> {
-        let value = env::var("WHALE_HARNESS_BACKEND").ok();
+    fn from_process() -> Result<Self, String> {
+        let value = process_option("backend").or_else(|| env::var("WHALE_HARNESS_BACKEND").ok());
         match value.as_deref().map(str::trim) {
             None | Some("") | Some("windows") => Ok(Self::Windows),
             Some("wsl") => Ok(Self::Wsl),
@@ -47,6 +47,45 @@ impl Backend {
             )),
         }
     }
+}
+
+fn option_from_args<I, S>(args: I, name: &str) -> Option<String>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    let long = format!("--{name}");
+    let prefix = format!("{long}=");
+    let mut args = args.into_iter();
+    while let Some(argument) = args.next() {
+        let argument = argument.as_ref();
+        if let Some(value) = argument.strip_prefix(&prefix) {
+            return Some(value.to_string());
+        }
+        if argument == long {
+            return args.next().map(|value| value.as_ref().to_string());
+        }
+    }
+    None
+}
+
+fn process_option(name: &str) -> Option<String> {
+    option_from_args(env::args().skip(1), name)
+}
+
+fn dsh_web_args(profile: &str, host: &str, port: &str) -> Vec<String> {
+    [
+        "--profile",
+        profile,
+        "--host",
+        host,
+        "--port",
+        port,
+        "--no-open",
+    ]
+    .into_iter()
+    .map(str::to_owned)
+    .collect()
 }
 
 #[derive(Debug)]
@@ -691,15 +730,7 @@ fn spawn_harness(app: &AppHandle, port: u16) -> Result<(Child, PathBuf), String>
     let mut command = Command::new(&runtime.node);
     command
         .arg(&runtime.dsh_entry)
-        .args([
-            "--profile",
-            DESKTOP_PROFILE,
-            "--no-open",
-            "--host",
-            "127.0.0.1",
-            "--port",
-            &port_text,
-        ])
+        .args(dsh_web_args(DESKTOP_PROFILE, "127.0.0.1", &port_text))
         .current_dir(workspace_dir())
         .env("NO_COLOR", "1")
         .env("WHALE_HARNESS_DESKTOP", "1")
@@ -742,8 +773,8 @@ fn spawn_wsl_harness(
     // probing, so a missing WSL runtime fails with a readable preparation
     // error instead of a confusing node/port-probe status.
     let workspace = workspace_dir();
-    let explicit_workspace = env::var("WHALE_WSL_WORKSPACE")
-        .ok()
+    let explicit_workspace = process_option("wsl-workspace")
+        .or_else(|| env::var("WHALE_WSL_WORKSPACE").ok())
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
     let (workspace_wsl, native_workspace) =
@@ -830,11 +861,11 @@ fn stop_backend(state: &DesktopState) {
 }
 
 fn launch_backend(app: &AppHandle, state: &DesktopState) -> Result<(), String> {
-    let backend = Backend::from_environment()?;
+    let backend = Backend::from_process()?;
     stop_backend(state);
     let resolved_wsl_distro = if backend == Backend::Wsl {
-        let configured = env::var("WHALE_HARNESS_WSL_DISTRO")
-            .ok()
+        let configured = process_option("wsl-distro")
+            .or_else(|| env::var("WHALE_HARNESS_WSL_DISTRO").ok())
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty());
         Some(resolve_wsl_distro(configured.as_deref())?)
@@ -976,7 +1007,7 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     let open = MenuItem::with_id(
         app,
         "open",
-        "显示 Whale Harness Desktop 0.1.1 RC1 Test",
+        "显示 Whale Harness Desktop",
         true,
         None::<&str>,
     )?;
@@ -988,7 +1019,7 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
         .ok_or_else(|| tauri::Error::AssetNotFound("missing default window icon".into()))?;
     TrayIconBuilder::with_id("whale-harness-tray")
         .icon(icon)
-        .tooltip("Whale Harness Desktop 0.1.1 RC1 Test")
+        .tooltip("Whale Harness Desktop")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id().as_ref() {
@@ -1062,8 +1093,9 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::{
-        choose_port, package_version_from_manifest, parse_wsl_distribution_line,
-        prepare_profile_directory, resolve_wsl_workspace, windows_to_wsl_path,
+        choose_port, dsh_web_args, option_from_args, package_version_from_manifest,
+        parse_wsl_distribution_line, prepare_profile_directory, resolve_wsl_workspace,
+        windows_to_wsl_path,
     };
     use std::{
         fs,
@@ -1092,6 +1124,24 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[test]
+    fn parses_desktop_options_in_equals_and_separate_forms() {
+        assert_eq!(
+            option_from_args(["--backend=wsl"], "backend").as_deref(),
+            Some("wsl")
+        );
+        assert_eq!(
+            option_from_args(["--wsl-distro", "Ubuntu2"], "wsl-distro").as_deref(),
+            Some("Ubuntu2")
+        );
+    }
+
+    #[test]
+    fn desktop_web_launch_never_opens_an_external_browser() {
+        let args = dsh_web_args("whale-desktop-wsl", "127.0.0.1", "3210");
+        assert!(args.iter().any(|argument| argument == "--no-open"));
     }
 
     #[test]
