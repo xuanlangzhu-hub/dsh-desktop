@@ -5,10 +5,12 @@ pinned Node.js and DeepSeek Harness runtime, starts the official WebUI on a
 private localhost port, navigates the WebView to it, and owns process cleanup
 when the app exits. It does not call `npx` or download packages at startup.
 
-Version `0.3.0` supports the official Vision/Files API in the bundled Windows
-0.1.1-rc.1 runtime and the optional WSL2 0.1.1-rc.2 runtime. The legacy
-vision-bridge v2 remains available only for an explicit 0.1.0-rc.6 rollback and
-fails closed if upstream package markers drift.
+Version `0.3.0` includes the 0.1.1-rc.1-compatible vision-bridge v2. Declared
+vision models keep the official native image pipeline; text-only DeepSeek models
+keep image blocks in the session for previews and serialize them into notes
+containing the attachment ID and local path. The WSL2 0.1.1-rc.2 runtime uses
+the official Vision/Files API and does not apply the legacy bridge. The Windows
+runtime build fails if patch markers drift instead of shipping an unpatched bundle.
 
 ## Experimental WSL2 backend
 
@@ -68,6 +70,6 @@ none of them are included in the executable, portable folder, or installer.
 Bundled versions:
 
 - Node.js `v24.18.0`
-- Windows fallback: `@deepseek-ai/dsh` `0.1.1-rc.1` + official Vision/Files API
+- Windows fallback: `@deepseek-ai/dsh` `0.1.1-rc.1` + vision-bridge v2
 - WSL2 runtime: `@deepseek-ai/dsh` `0.1.1-rc.2` + official Vision/Files API
 - Whale Mist `0.2.1`

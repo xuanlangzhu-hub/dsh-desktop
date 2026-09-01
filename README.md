@@ -1,6 +1,6 @@
 # Whale Harness Desktop
 
-一个围绕 DeepSeek Harness 官方 WebUI 构建的 Windows 桌面端实验项目。当前版本为 `0.3.0`：Tauri 负责原生窗口与进程生命周期，内置 Node.js 和固定版本 DSH，Whale Mist 提供淡蓝渐变、克制玻璃材质和简洁排版，并内置 vision-bridge v2 以保留图片预览、让纯文本 DeepSeek 模型安全接收图片文件引用。
+一个围绕 DeepSeek Harness 官方 WebUI 构建的 Windows 桌面端实验项目。当前版本为 `0.3.0`：Tauri 负责原生窗口与进程生命周期，内置 Node.js 和固定版本 DSH，Whale Mist 提供淡蓝渐变、克制玻璃材质和简洁排版，Windows RC1 运行时内置 vision-bridge v2，让纯文本模型也能保留图片预览并接收文件引用；WSL2 RC2 运行时使用官方 Vision/Files 管线。
 
 ## 目录
 
@@ -29,7 +29,7 @@ npm run build
 npm run portable
 ```
 
-`prepare:runtime` 会按锁文件安装 `@deepseek-ai/dsh@0.1.1-rc.1`，应用 vision-bridge v2，使用 Node 校验补丁后的 JavaScript，再裁掉与 Windows x64 无关的原生预编译件。任何补丁标记漂移都会直接中止构建，避免产出未桥接图片的安装包。安装包和便携目录最终整理到工作区的 `release/`。
+`prepare:runtime` 会按锁文件安装 `@deepseek-ai/dsh@0.1.1-rc.1`，对纯文本模型应用 RC1 兼容版 vision-bridge v2，并保留声明为视觉模型的官方原生图片管线；随后用 Node 校验补丁后的 JavaScript，再裁掉与 Windows x64 无关的原生预编译件。任何补丁标记漂移都会直接中止构建。安装包和便携目录最终整理到工作区的 `release/`。
 
 ## 实验性 WSL2 后端
 
@@ -42,9 +42,9 @@ cd whale-desktop
 npm run prepare:wsl-runtime
 ```
 
-- 在 Ubuntu2 内创建 `~/.local/share/whale-harness/runtime`（自包含 Node v24.18.0 + `@deepseek-ai/dsh@0.1.1-rc.1` 的 Linux 原生依赖）
+- 在 Ubuntu2 内创建 `~/.local/share/whale-harness/runtime`（自包含 Node v24.18.0 + `@deepseek-ai/dsh@0.1.1-rc.2` 的 Linux 原生依赖）
 - 创建独立 Profile `~/.dsh/profiles/whale-desktop-wsl`，重新安装 Whale Mist 与 dsh-archived-sessions，并复制 Anchored Standard preset
-- 应用跨平台的 vision-bridge v2（`apply-vision-bridge.mjs`）
+- 使用 RC2 官方 Vision/Files API；仅显式回滚到 0.1.0-rc.6 时才应用旧版 vision-bridge v2
 
 启动：
 
