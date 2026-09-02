@@ -143,7 +143,7 @@ for native in $NATIVE_FILES; do
 done
 echo "native  : $(echo "$NATIVE_FILES" | wc -l) ELF binaries verified"
 
-# ── managed Whale Mist theme copy ────────────────────────────────────────────
+# ── managed Whale Appearance theme copy ─────────────────────────────────────
 THEME_DIR="$RUNTIME_ROOT/theme/dsh-whale-mist"
 mkdir -p "$THEME_DIR"
 rsync -a --delete \
@@ -151,7 +151,7 @@ rsync -a --delete \
   "$WORKSPACE_ROOT/dsh-whale-mist/" "$THEME_DIR/"
 test -f "$THEME_DIR/package.json" || fail "theme copy is incomplete"
 THEME_VERSION="$(sed -n 's/.*"version": "\([^"]*\)".*/\1/p' "$THEME_DIR/package.json" | head -n1)"
-echo "theme   : Whale Mist $THEME_VERSION"
+echo "theme   : Whale Appearance $THEME_VERSION"
 
 # ── Anchored Standard preset (files only, no sessions/attachments/credentials) ─
 PRESET_DIR="$HOME/.dsh/.agent-presets/anchored-standard"
@@ -179,7 +179,7 @@ mkdir -p "$LOGS_DIR"
 DUMP_FILE="$LOGS_DIR/dump-config.txt"
 DSH_HOME="$HOME/.dsh" "$NODE_BIN" "$DSH_DIR/node_modules/@deepseek-ai/dsh/lib/bin.js" \
   --profile whale-desktop-wsl --dump-config > "$DUMP_FILE" || fail "dsh --dump-config failed; see $DUMP_FILE"
-grep -q 'dsh-whale-mist' "$DUMP_FILE" || fail "Whale Mist is missing from the composed config"
+grep -q 'dsh-whale-mist' "$DUMP_FILE" || fail "Whale Appearance is missing from the composed config"
 grep -q 'dsh-archived-sessions' "$DUMP_FILE" || fail "dsh-archived-sessions is missing from the composed config"
 echo "profile : composed config verified ($DUMP_FILE)"
 

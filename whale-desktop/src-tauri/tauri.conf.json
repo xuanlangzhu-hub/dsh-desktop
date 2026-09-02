@@ -24,8 +24,8 @@
         "fullscreen": false,
         "decorations": true,
         "transparent": false,
-        "theme": "Light",
-        "backgroundColor": "#eaf4fb"
+        "theme": "Dark",
+        "backgroundColor": "#080b14"
       }
     ],
     "security": {

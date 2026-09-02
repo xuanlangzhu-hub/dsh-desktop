@@ -8,15 +8,21 @@ window.__ModuleLoader__.load({
     const { FishLogo } = require("@deepseek-ai/dsh-client-ui-primitives");
 
     const THEME_ID = "whale-mist";
+    const ABYSS_THEME_ID = "whale-abyss";
     const ACTIVE_CLASS = "dsh-whale-mist-active";
+    const ABYSS_ACTIVE_CLASS = "dsh-whale-abyss-active";
+    const THEME_IDS = Object.freeze({ mist: THEME_ID, abyss: ABYSS_THEME_ID });
+    const MANAGED_THEME_IDS = new Set(Object.values(THEME_IDS));
     const STYLE_ID = "dsh-whale-mist/theme.css";
     const STORAGE_KEY = "dsh-whale-mist.appearance.v1";
     const DEFAULT_SETTINGS = Object.freeze({
+      theme: "abyss",
       canvas: "soft",
       sidebar: "balanced",
       glass: "standard"
     });
     const ALLOWED_SETTINGS = Object.freeze({
+      theme: Object.freeze(["mist", "abyss"]),
       canvas: Object.freeze(["soft", "clear"]),
       sidebar: Object.freeze(["balanced", "deep"]),
       glass: Object.freeze(["standard", "restrained"])
@@ -45,9 +51,14 @@ window.__ModuleLoader__.load({
     }
 
     function projectSettings(settings) {
+      document.body.dataset.wmTheme = settings.theme;
       document.body.dataset.wmCanvas = settings.canvas;
       document.body.dataset.wmSidebar = settings.sidebar;
       document.body.dataset.wmGlass = settings.glass;
+    }
+
+    function selectedThemeId(settings) {
+      return THEME_IDS[settings.theme] ?? ABYSS_THEME_ID;
     }
 
     function createBooleanSignal(initialValue = false) {
@@ -157,15 +168,109 @@ window.__ModuleLoader__.load({
       })
     });
 
-    function WhaleMistSettings({ controller }) {
+    const abyssTheme = Object.freeze({
+      id: ABYSS_THEME_ID,
+      colorScheme: "dark",
+      tokens: Object.freeze({
+        "--dsw-alias-bg-base": "#080b14",
+        "--dsw-alias-bg-primary": "#0b111d",
+        "--dsw-alias-bg-layer-1": "rgba(15, 23, 38, 0.94)",
+        "--dsw-alias-bg-layer-2": "rgba(23, 34, 54, 0.92)",
+        "--dsw-alias-bg-layer-3": "rgba(28, 40, 62, 0.96)",
+        "--dsw-alias-bg-overlay": "rgba(23, 34, 54, 0.98)",
+        "--dsw-alias-bg-mask-1": "rgba(2, 5, 12, 0.68)",
+        "--dsw-alias-bg-module-platform": "rgba(20, 30, 48, 0.9)",
+
+        "--dsw-alias-border-l1": "rgba(231, 236, 245, 0.06)",
+        "--dsw-alias-border-l2": "rgba(125, 145, 177, 0.16)",
+        "--dsw-alias-border-l2-darkmode-thin": "rgba(125, 145, 177, 0.13)",
+        "--dsw-alias-border-l3": "rgba(125, 145, 177, 0.23)",
+        "--dsw-alias-border-l4": "rgba(151, 168, 194, 0.32)",
+        "--dsw-alias-border-secondary": "rgba(125, 145, 177, 0.18)",
+        "--dsw-alias-border-inverted": "rgba(231, 236, 245, 0.14)",
+        "--dsw-alias-line-secondary": "rgba(125, 145, 177, 0.13)",
+        "--dsw-alias-separator-primary": "rgba(125, 145, 177, 0.12)",
+
+        "--dsw-alias-label-primary": "#e7ecf5",
+        "--dsw-alias-label-primary-bluish": "#dce5f5",
+        "--dsw-alias-label-primary-foreground": "#080b14",
+        "--dsw-alias-label-secondary": "#a7b2c5",
+        "--dsw-alias-label-tertiary": "#7f8da5",
+        "--dsw-alias-label-quaternary": "#647188",
+        "--dsw-alias-label-caption": "#8f9db3",
+        "--dsw-alias-label-dimmed": "#657188",
+        "--dsw-alias-label-primary-dimmed": "#b5bfd0",
+        "--dsw-alias-label-inverse": "#080b14",
+        "--dsw-alias-label-error": "#ff8795",
+
+        "--dsw-alias-brand-primary": "#8c72f2",
+        "--dsw-alias-brand-primary-new-colorprimary-new-color": "#8c72f2",
+        "--dsw-alias-button-primary-fill": "#7d63de",
+        "--dsw-alias-button-primary-hover": "#9078ed",
+        "--dsw-alias-button-info-fill": "rgba(140, 114, 242, 0.18)",
+        "--dsw-alias-button-info-hover": "rgba(140, 114, 242, 0.26)",
+        "--dsw-alias-button-elevated-fill": "rgba(31, 44, 68, 0.92)",
+        "--dsw-alias-button-floating-fill": "rgba(24, 35, 56, 0.96)",
+        "--dsw-alias-button-floating-hover": "rgba(36, 49, 74, 0.98)",
+        "--dsw-alias-button-ghost-active-fill": "rgba(140, 114, 242, 0.2)",
+
+        "--dsw-alias-interactive-bg-primary": "rgba(140, 114, 242, 0.16)",
+        "--dsw-alias-interactive-bg-hover": "rgba(231, 236, 245, 0.07)",
+        "--dsw-alias-interactive-bg-active": "rgba(140, 114, 242, 0.2)",
+        "--dsw-alias-interactive-bg-hover-solid": "#1b2940",
+        "--dsw-alias-interactive-bg-hover-danger": "rgba(255, 91, 111, 0.14)",
+        "--dsw-alias-fill-l2": "rgba(125, 145, 177, 0.16)",
+        "--dsw-alias-fill-tsp-secondary": "rgba(231, 236, 245, 0.08)",
+
+        "--dsw-alias-scrollbar-bg-l2": "rgba(111, 128, 157, 0.28)",
+        "--dsw-alias-scrollbar-hover-l2": "rgba(151, 168, 194, 0.42)",
+        "--dsw-alias-markdown-citation": "#a992ff",
+        "--dsw-alias-markdown-code-block": "rgba(10, 16, 28, 0.94)",
+        "--dsw-alias-markdown-code-block-banner": "rgba(19, 29, 47, 0.98)",
+
+        "--dsw-alias-state-business-primary": "#9a82f5",
+        "--dsw-alias-state-business-tertiary": "rgba(140, 114, 242, 0.2)",
+        "--dsw-alias-state-success-primary": "#64cda2",
+        "--dsw-alias-state-success-tertiary": "rgba(72, 177, 136, 0.16)",
+        "--dsw-alias-state-warn-primary": "#e3a85d",
+        "--dsw-alias-state-warn-secondary": "#efbb78",
+        "--dsw-alias-state-warn-tertiary": "rgba(227, 168, 93, 0.16)",
+        "--dsw-alias-state-warn-label": "#efbb78",
+        "--dsw-alias-state-error-primary": "#ff7185",
+        "--dsw-alias-state-error-secondary": "#ff8fa0",
+
+        "--dsw-font-family": "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif",
+        "--dsw-font-mono": "'SFMono-Regular', Consolas, 'Liberation Mono', monospace",
+        "--dsw-mask-blur": "blur(22px) saturate(118%)",
+        "--dsw-shadow-lv1": "0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 22px rgba(1, 4, 12, 0.24)",
+        "--dsw-shadow-lv2": "0 2px 5px rgba(0, 0, 0, 0.34), 0 18px 46px rgba(1, 4, 12, 0.38)",
+        "--dsw-shadow-lv3": "0 5px 12px rgba(0, 0, 0, 0.38), 0 32px 78px rgba(1, 4, 12, 0.5)",
+
+        "--dsw-specific-sidebar-fill": "rgba(15, 23, 38, 0.94)",
+        "--dsw-specific-sidebar-nav-item-active": "rgba(140, 114, 242, 0.16)",
+        "--dsw-specific-sidebar-nav-item-active-accent": "#8c72f2",
+        "--dsw-specific-sidebar-nav-item-hover": "rgba(231, 236, 245, 0.06)",
+        "--dsw-specific-input-major": "linear-gradient(180deg, #172236 0%, #121b2c 100%)",
+        "--dsw-specific-bubble": "rgba(72, 56, 119, 0.46)",
+        "--dsw-specific-menu": "rgba(19, 29, 47, 0.98)",
+        "--dsw-specific-selector": "rgba(28, 40, 62, 0.94)",
+        "--dsw-specific-tip": "rgba(23, 34, 54, 0.96)"
+      })
+    });
+
+    function WhaleAppearanceSettings({ controller }) {
       const h = React.createElement;
       const [settings, setSettings] = React.useState(() => controller.read());
       const chinese = (navigator.language || "").toLowerCase().startsWith("zh");
       const copy = chinese ? {
-        title: "鲸雾蓝",
-        badge: "Whale Mist",
-        description: "调节整体层次；输入卡片始终保持不透明。",
+        title: "鲸系外观",
+        badge: "Whale",
+        description: "选择浅雾或深海，并调节整体层次；输入卡片始终保持不透明。",
         reset: "恢复默认",
+        theme: "主题",
+        themeHint: "在鲸雾蓝与鲸渊深色之间切换",
+        mist: "鲸雾",
+        abyss: "鲸渊",
         canvas: "背景层次",
         canvasHint: "控制主画布的雾感与边界清晰度",
         soft: "柔雾",
@@ -179,10 +284,14 @@ window.__ModuleLoader__.load({
         standard: "标准",
         restrained: "克制"
       } : {
-        title: "Whale Mist",
-        badge: "Appearance",
-        description: "Tune the visual depth. The composer always stays opaque.",
+        title: "Whale appearance",
+        badge: "Whale",
+        description: "Choose mist or abyss, then tune the depth. The composer stays opaque.",
         reset: "Reset",
+        theme: "Theme",
+        themeHint: "Switch between Whale Mist and Whale Abyss",
+        mist: "Mist",
+        abyss: "Abyss",
         canvas: "Canvas depth",
         canvasHint: "Controls mist and edge separation on the main canvas",
         soft: "Soft",
@@ -244,6 +353,7 @@ window.__ModuleLoader__.load({
           }, copy.reset)
         ]),
         h("p", { className: "wm-settings-description", key: "description" }, copy.description),
+        row("theme", copy.theme, copy.themeHint, ALLOWED_SETTINGS.theme),
         row("canvas", copy.canvas, copy.canvasHint, ALLOWED_SETTINGS.canvas),
         row("sidebar", copy.sidebar, copy.sidebarHint, ALLOWED_SETTINGS.sidebar),
         row("glass", copy.glass, copy.glassHint, ALLOWED_SETTINGS.glass)
@@ -389,6 +499,52 @@ window.__ModuleLoader__.load({
         --dsw-specific-menu: #f8fbfe !important;
         --dsw-specific-selector: rgba(248, 252, 255, 0.9) !important;
         --dsw-mask-blur: blur(12px) saturate(112%) !important;
+      }
+
+      body.${ABYSS_ACTIVE_CLASS} {
+        min-height: 100vh;
+        background:
+          radial-gradient(60rem 38rem at 82% -14%, rgba(116, 91, 204, 0.13) 0%, transparent 66%),
+          radial-gradient(46rem 34rem at -12% 78%, rgba(64, 111, 151, 0.12) 0%, transparent 72%),
+          linear-gradient(145deg, #0b111d 0%, #080b14 52%, #070a12 100%);
+        color: var(--dsw-alias-label-primary);
+        font-family: var(--dsw-font-family);
+        font-optical-sizing: auto;
+        -webkit-font-smoothing: antialiased;
+        text-rendering: optimizeLegibility;
+      }
+
+      body.${ABYSS_ACTIVE_CLASS}::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        background: linear-gradient(108deg, rgba(117, 146, 187, 0.025), transparent 38%, rgba(140, 114, 242, 0.035));
+      }
+
+      body.${ABYSS_ACTIVE_CLASS}[data-wm-canvas="clear"] {
+        --dsw-alias-bg-base: #080b14 !important;
+        --dsw-alias-bg-layer-1: #0f1726 !important;
+        --dsw-alias-bg-layer-2: #172236 !important;
+        background:
+          radial-gradient(58rem 36rem at 84% -16%, rgba(116, 91, 204, 0.09) 0%, transparent 68%),
+          linear-gradient(145deg, #0c1321 0%, #080b14 58%, #070a12 100%);
+      }
+
+      body.${ABYSS_ACTIVE_CLASS}[data-wm-sidebar="deep"] {
+        --dsw-specific-sidebar-fill: rgba(10, 16, 28, 0.98) !important;
+        --dsw-specific-sidebar-nav-item-active: rgba(140, 114, 242, 0.18) !important;
+        --dsw-specific-sidebar-nav-item-hover: rgba(231, 236, 245, 0.055) !important;
+      }
+
+      body.${ABYSS_ACTIVE_CLASS}[data-wm-glass="restrained"] {
+        --dsw-alias-bg-layer-1: rgba(15, 23, 38, 0.985) !important;
+        --dsw-alias-bg-layer-2: rgba(23, 34, 54, 0.985) !important;
+        --dsw-alias-bg-layer-3: rgba(28, 40, 62, 0.99) !important;
+        --dsw-alias-bg-overlay: #172236 !important;
+        --dsw-specific-menu: #131d2f !important;
+        --dsw-specific-selector: #1c283e !important;
+        --dsw-mask-blur: blur(12px) saturate(106%) !important;
       }
 
       .wm-settings-group {
@@ -594,6 +750,26 @@ window.__ModuleLoader__.load({
         background: var(--dsw-alias-state-success-primary);
       }
 
+      body.${ABYSS_ACTIVE_CLASS} .wm-session-status {
+        border-color: rgba(125, 145, 177, 0.17);
+        background: rgba(19, 29, 47, 0.9);
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.24);
+      }
+
+      body.${ABYSS_ACTIVE_CLASS} .wm-session-status-running .wm-status-mark::after {
+        border-color: rgba(140, 114, 242, 0.46);
+      }
+
+      body.${ABYSS_ACTIVE_CLASS} .wm-session-status-waiting {
+        border-color: rgba(227, 168, 93, 0.22);
+        background: rgba(53, 40, 27, 0.88);
+      }
+
+      body.${ABYSS_ACTIVE_CLASS} .wm-session-status-complete {
+        border-color: rgba(100, 205, 162, 0.2);
+        background: rgba(19, 47, 40, 0.88);
+      }
+
       @keyframes wm-status-arrive {
         from {
           opacity: 0;
@@ -632,13 +808,117 @@ window.__ModuleLoader__.load({
         }
       }
 
+      /* Harmonize dsh-reasoning-effort with Whale Mist's light surface.
+         Keep the resting track blue-white and let the plugin's moving radiation
+         carry the indigo-violet depth without affecting the
+         official light/dark themes. */
+      body.${ACTIVE_CLASS} .re-effort-track {
+        background:
+          linear-gradient(100deg, #f8fcff 0%, #edf7ff 48%, #dceefb 100%) !important;
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, 0.92),
+          inset 0 0 0 1px rgba(72, 124, 164, 0.14),
+          0 3px 12px rgba(47, 91, 124, 0.12) !important;
+      }
+
+      body.${ACTIVE_CLASS} .re-effort-slider:not([data-effort="off"]) .re-effort-track::before {
+        background: linear-gradient(90deg, #e9dcff 0%, #c9a9ff 22%, #8e62dd 56%, #4d278f 100%) !important;
+      }
+
+      body.${ACTIVE_CLASS} .re-effort-slider[data-effort="max"] .re-effort-track::before {
+        background: linear-gradient(90deg, #e9dcff 0%, #bc91ff 18%, #7950cf 54%, #3f1b7f 100%) !important;
+      }
+
+      body.${ACTIVE_CLASS} .re-effort-slider:not([data-effort="off"]) .re-effort-track::after {
+        background:
+          radial-gradient(circle at 18% 45%, rgba(137, 96, 230, 0.2), transparent 25%),
+          linear-gradient(90deg, rgba(106, 63, 179, 0.08), transparent 42%, rgba(70, 31, 139, 0.18)) !important;
+      }
+
+      body.${ACTIVE_CLASS} .re-effort .re-effort-canvas {
+        opacity: 0.9;
+        mix-blend-mode: multiply;
+        filter: hue-rotate(42deg) saturate(1.5) contrast(1.08);
+      }
+
+      body.${ACTIVE_CLASS} .re-effort.is-dragging .re-effort-canvas {
+        filter: hue-rotate(42deg) saturate(1.66) brightness(1.1) contrast(1.12);
+      }
+
+      body.${ACTIVE_CLASS} .re-effort-fx::after {
+        content: "";
+        position: absolute;
+        z-index: 3;
+        inset: 0;
+        border-radius: inherit;
+        pointer-events: none;
+        background:
+          radial-gradient(ellipse 68px 34px at var(--re-progress) 50%, rgba(198, 156, 255, 0.5) 0%, rgba(137, 96, 234, 0.24) 34%, transparent 72%);
+        mix-blend-mode: multiply;
+        opacity: 1;
+        transition: opacity 160ms cubic-bezier(0.23, 1, 0.32, 1);
+      }
+
+      body.${ACTIVE_CLASS} .re-effort-slider[data-effort="off"] .re-effort-fx::after {
+        opacity: 0;
+      }
+
+      body.${ACTIVE_CLASS} .re-effort .re-effort-flare {
+        background: radial-gradient(ellipse at 100% 50%, rgba(241, 228, 255, 0.94) 0 4%, rgba(209, 181, 255, 0.84) 12%, rgba(139, 83, 235, 0.58) 30%, rgba(75, 35, 156, 0.22) 53%, transparent 75%);
+        filter: blur(2px) saturate(1.24);
+        transition: opacity 160ms cubic-bezier(0.23, 1, 0.32, 1);
+      }
+
+      body.${ACTIVE_CLASS} .re-effort .re-effort-flare::before {
+        background: linear-gradient(90deg, transparent, rgba(151, 112, 245, 0.46), #eadcff, rgba(116, 53, 202, 0.7), transparent) !important;
+        box-shadow: 0 0 7px rgba(155, 103, 235, 0.72), 0 0 13px rgba(91, 70, 201, 0.5) !important;
+      }
+
+      body.${ACTIVE_CLASS} .re-effort .re-effort-flare::after {
+        background: linear-gradient(180deg, transparent, rgba(222, 194, 255, 0.92), transparent) !important;
+        box-shadow: 0 0 7px rgba(140, 83, 223, 0.68) !important;
+      }
+
+      body.${ACTIVE_CLASS} .re-effort-slider[data-effort="off"] .re-effort-flare {
+        opacity: 0;
+      }
+
+      body.${ACTIVE_CLASS} .re-effort.is-dragging .re-effort-flare {
+        filter: blur(1.5px) saturate(1.38) brightness(1.22);
+      }
+
+      body.${ACTIVE_CLASS} .re-effort .re-effort-knob {
+        box-shadow:
+          0 0 0 2px rgba(94, 133, 222, 0.16),
+          0 0 13px rgba(119, 82, 205, 0.38),
+          0 2px 7px rgba(34, 61, 88, 0.24);
+      }
+
+      body.${ACTIVE_CLASS} .re-effort-slider[data-effort="off"] .re-effort-knob {
+        box-shadow:
+          0 0 0 2px rgba(74, 139, 190, 0.12),
+          0 3px 9px rgba(42, 86, 119, 0.18);
+      }
+
+      body.${ACTIVE_CLASS} .re-effort-slider[data-effort="max"] .re-effort-knob {
+        box-shadow:
+          0 0 0 3px rgba(126, 99, 221, 0.18),
+          0 0 20px rgba(132, 83, 225, 0.62),
+          0 0 30px rgba(64, 126, 218, 0.28),
+          0 3px 8px rgba(34, 61, 88, 0.24);
+      }
+
       body.${ACTIVE_CLASS} button,
-      body.${ACTIVE_CLASS} [role="button"] {
+      body.${ACTIVE_CLASS} [role="button"],
+      body.${ABYSS_ACTIVE_CLASS} button,
+      body.${ABYSS_ACTIVE_CLASS} [role="button"] {
         transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease, transform 120ms cubic-bezier(0.23, 1, 0.32, 1);
       }
 
       body.${ACTIVE_CLASS} button:active,
-      body.${ACTIVE_CLASS} [role="button"]:active {
+      body.${ACTIVE_CLASS} [role="button"]:active,
+      body.${ABYSS_ACTIVE_CLASS} button:active,
+      body.${ABYSS_ACTIVE_CLASS} [role="button"]:active {
         transform: scale(0.975);
       }
 
@@ -647,14 +927,23 @@ window.__ModuleLoader__.load({
         outline-offset: 2px;
       }
 
+      body.${ABYSS_ACTIVE_CLASS} :focus-visible {
+        outline: 2px solid rgba(140, 114, 242, 0.72);
+        outline-offset: 2px;
+      }
+
       @media (prefers-reduced-motion: reduce) {
         body.${ACTIVE_CLASS} button,
-        body.${ACTIVE_CLASS} [role="button"] {
+        body.${ACTIVE_CLASS} [role="button"],
+        body.${ABYSS_ACTIVE_CLASS} button,
+        body.${ABYSS_ACTIVE_CLASS} [role="button"] {
           transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
         }
 
         body.${ACTIVE_CLASS} button:active,
-        body.${ACTIVE_CLASS} [role="button"]:active {
+        body.${ACTIVE_CLASS} [role="button"]:active,
+        body.${ABYSS_ACTIVE_CLASS} button:active,
+        body.${ABYSS_ACTIVE_CLASS} [role="button"]:active {
           transform: none;
         }
 
@@ -679,6 +968,17 @@ window.__ModuleLoader__.load({
           --dsw-specific-menu: #f8fbfe !important;
           --dsw-mask-blur: none !important;
         }
+
+        body.${ABYSS_ACTIVE_CLASS} {
+          --dsw-alias-bg-base: #080b14 !important;
+          --dsw-alias-bg-layer-1: #0f1726 !important;
+          --dsw-alias-bg-layer-2: #172236 !important;
+          --dsw-alias-bg-overlay: #172236 !important;
+          --dsw-specific-sidebar-fill: #0f1726 !important;
+          --dsw-specific-input-major: #172236 !important;
+          --dsw-specific-menu: #131d2f !important;
+          --dsw-mask-blur: none !important;
+        }
       }
 
       @media (prefers-contrast: more) {
@@ -689,6 +989,14 @@ window.__ModuleLoader__.load({
           --dsw-alias-border-l3: rgba(16, 55, 83, 0.56) !important;
           --dsw-alias-bg-layer-1: rgba(255, 255, 255, 0.9) !important;
         }
+
+        body.${ABYSS_ACTIVE_CLASS} {
+          --dsw-alias-label-secondary: #c0cada !important;
+          --dsw-alias-label-tertiary: #a3afc2 !important;
+          --dsw-alias-border-l2: rgba(188, 201, 222, 0.38) !important;
+          --dsw-alias-border-l3: rgba(204, 214, 231, 0.52) !important;
+          --dsw-alias-bg-layer-1: rgba(15, 23, 38, 0.99) !important;
+        }
       }
     `;
 
@@ -696,6 +1004,12 @@ window.__ModuleLoader__.load({
 
     function apply(ctx) {
       let settings = readSettings();
+      const query = new URLSearchParams(window.location.search);
+      const qaEnabled = query.has("wm-status-qa");
+      const qaTheme = query.get("wm-theme-qa");
+      if (qaEnabled && ALLOWED_SETTINGS.theme.includes(qaTheme)) {
+        settings = normalizeSettings({ ...settings, theme: qaTheme });
+      }
       const themeSignal = createBooleanSignal(false);
       const controller = {
         read: () => ({ ...settings }),
@@ -704,39 +1018,55 @@ window.__ModuleLoader__.load({
           settings = normalizeSettings({ ...settings, [key]: value });
           persistSettings(settings);
           projectSettings(settings);
+          if (key === "theme") ctx.theme.setTheme(selectedThemeId(settings));
           return { ...settings };
         },
         reset: () => {
           settings = { ...DEFAULT_SETTINGS };
           persistSettings(settings);
           projectSettings(settings);
+          ctx.theme.setTheme(selectedThemeId(settings));
           return { ...settings };
         }
       };
+      const syncActiveMarker = (snapshot) => {
+        const mistActive = snapshot.active.id === THEME_ID;
+        const abyssActive = snapshot.active.id === ABYSS_THEME_ID;
+        document.body.classList.toggle(ACTIVE_CLASS, mistActive);
+        document.body.classList.toggle(ABYSS_ACTIVE_CLASS, abyssActive);
+        themeSignal.set(MANAGED_THEME_IDS.has(snapshot.active.id));
+      };
 
       ctx.effect(() => {
-        const disposeTheme = ctx.theme.register(theme);
-        ctx.theme.setTheme(THEME_ID);
-        return disposeTheme;
-      }, "whale-mist: theme registration");
+        const disposeMist = ctx.theme.register(theme);
+        const disposeAbyss = ctx.theme.register(abyssTheme);
+        ctx.theme.setTheme(selectedThemeId(settings));
+        return () => {
+          disposeAbyss();
+          disposeMist();
+        };
+      }, "whale: theme registration");
 
       ctx.effect(() => {
         // Current Harness releases may re-apply their persisted preference when
-        // model settings change. Whale Mist is the installed desktop theme,
-        // so retain it for the whole plugin lifetime instead of only during
-        // the first paint.
+        // model settings change. Retain the selected Whale theme for the whole
+        // plugin lifetime instead of only during the first paint.
         let queued = false;
         const off = ctx.on("theme/change", (snapshot) => {
-          if (snapshot.active.id === THEME_ID || queued) return;
+          const desiredThemeId = selectedThemeId(settings);
+          if (snapshot.active.id === desiredThemeId || queued) return;
           queued = true;
           queueMicrotask(() => {
             queued = false;
-            if (ctx.theme.getTheme().active.id !== THEME_ID) {
-              ctx.theme.setTheme(THEME_ID);
+            let current = ctx.theme.getTheme();
+            const currentDesiredThemeId = selectedThemeId(settings);
+            if (current.active.id !== currentDesiredThemeId) {
+              ctx.theme.setTheme(currentDesiredThemeId);
+              current = ctx.theme.getTheme();
             }
+            syncActiveMarker(current);
           });
         });
-        const qaEnabled = new URLSearchParams(window.location.search).has("wm-status-qa");
         const receiveThemeReset = (event) => {
           if (qaEnabled) ctx.theme.setTheme(event.detail || "dark");
         };
@@ -745,7 +1075,7 @@ window.__ModuleLoader__.load({
           window.removeEventListener("dsh-whale-mist:qa-theme-reset", receiveThemeReset);
           off();
         };
-      }, "whale-mist: active theme retention");
+      }, "whale: active theme retention");
 
       ctx.effect(() => {
         const previous = document.querySelector(`style[data-plugin-css="${STYLE_ID}"]`);
@@ -759,23 +1089,20 @@ window.__ModuleLoader__.load({
       }, "whale-mist: glass material stylesheet");
 
       ctx.effect(() => {
-        const syncClass = (snapshot) => {
-          const active = snapshot.active.id === THEME_ID;
-          document.body.classList.toggle(ACTIVE_CLASS, active);
-          themeSignal.set(active);
-        };
-        syncClass(ctx.theme.getTheme());
-        const off = ctx.on("theme/change", syncClass);
+        syncActiveMarker(ctx.theme.getTheme());
+        const off = ctx.on("theme/change", syncActiveMarker);
         return () => {
           off();
           document.body.classList.remove(ACTIVE_CLASS);
+          document.body.classList.remove(ABYSS_ACTIVE_CLASS);
           themeSignal.set(false);
         };
-      }, "whale-mist: active theme marker");
+      }, "whale: active theme marker");
 
       ctx.effect(() => {
         projectSettings(settings);
         return () => {
+          delete document.body.dataset.wmTheme;
           delete document.body.dataset.wmCanvas;
           delete document.body.dataset.wmSidebar;
           delete document.body.dataset.wmGlass;
@@ -787,7 +1114,7 @@ window.__ModuleLoader__.load({
         id: "whale-mist",
         order: 45,
         inject: () => ({ controller })
-      }, WhaleMistSettings));
+      }, WhaleAppearanceSettings));
 
       ctx.slots.inject("conversation.session.header.actions", () => ctx.slots.register({
         name: "conversation.session.header.actions",

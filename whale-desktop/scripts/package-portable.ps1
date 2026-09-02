@@ -21,7 +21,7 @@ if (-not (Test-Path -LiteralPath (Join-Path $runtimeSource 'node\node.exe') -Pat
     throw "Bundled Node runtime is incomplete: $runtimeSource"
 }
 if (-not (Test-Path -LiteralPath (Join-Path $themeSource 'src\client.js') -PathType Leaf)) {
-    throw "Whale Mist source is incomplete: $themeSource"
+    throw "Whale Appearance source is incomplete: $themeSource"
 }
 
 if (Test-Path -LiteralPath $outputRoot) {
@@ -43,7 +43,7 @@ $themeTarget = Join-Path $outputRoot 'runtime\theme\dsh-whale-mist'
 New-Item -ItemType Directory -Path $themeTarget -Force | Out-Null
 & robocopy.exe $themeSource $themeTarget /E /COPY:DAT /DCOPY:DAT /R:2 /W:1 /MT:8 /XD qa /NFL /NDL /NJH /NJS /NP | Out-Null
 if ($LASTEXITCODE -gt 7) {
-    throw "Failed to copy Whale Mist (robocopy exit $LASTEXITCODE)"
+    throw "Failed to copy Whale Appearance (robocopy exit $LASTEXITCODE)"
 }
 
 $tauriConfig = Get-Content -LiteralPath (Join-Path $projectRoot 'src-tauri\tauri.conf.json') -Raw | ConvertFrom-Json

@@ -1,11 +1,11 @@
 # Whale Harness Desktop
 
-一个围绕 DeepSeek Harness 官方 WebUI 构建的 Windows 桌面端实验项目。当前版本为 `0.3.0`：Tauri 负责原生窗口与进程生命周期，内置 Node.js 和固定版本 DSH，Whale Mist 提供淡蓝渐变、克制玻璃材质和简洁排版，Windows RC1 运行时内置 vision-bridge v2，让纯文本模型也能保留图片预览并接收文件引用；WSL2 RC2 运行时使用官方 Vision/Files 管线。
+一个围绕 DeepSeek Harness 官方 WebUI 构建的 Windows 桌面端实验项目。当前版本为 `0.3.0`：Tauri 负责原生窗口与进程生命周期，内置 Node.js 和固定版本 DSH；Whale Appearance 默认提供深海蓝黑的 Whale Abyss，并保留淡蓝 Whale Mist；Windows RC1 运行时内置 vision-bridge v2，让纯文本模型也能保留图片预览并接收文件引用；WSL2 RC2 运行时使用官方 Vision/Files 管线。
 
 ## 目录
 
 - `whale-desktop/`：Tauri 2 桌面端、启动页、运行时准备与打包脚本
-- `dsh-whale-mist/`：官方 WebUI 的 Whale Mist 主题插件
+- `dsh-whale-mist/`：官方 WebUI 的 Whale Abyss / Whale Mist 双主题插件
 - `dsh-whale-tui/`：早期 TUI 实验与启动脚本
 - `archive/`：保留的设计原型，不参与正式构建
 - `release/`：本地安装包与便携版，体积较大，不提交到 Git
@@ -43,7 +43,7 @@ npm run prepare:wsl-runtime
 ```
 
 - 在 Ubuntu2 内创建 `~/.local/share/whale-harness/runtime`（自包含 Node v24.18.0 + `@deepseek-ai/dsh@0.1.1-rc.2` 的 Linux 原生依赖）
-- 创建独立 Profile `~/.dsh/profiles/whale-desktop-wsl`，重新安装 Whale Mist 与 dsh-archived-sessions，并复制 Anchored Standard preset
+- 创建独立 Profile `~/.dsh/profiles/whale-desktop-wsl`，重新安装 Whale Appearance 与 dsh-archived-sessions，并复制 Anchored Standard preset
 - 使用 RC2 官方 Vision/Files API；仅显式回滚到 0.1.0-rc.6 时才应用旧版 vision-bridge v2
 
 启动：
@@ -59,6 +59,6 @@ WSL 后端仅监听 `127.0.0.1`，WebUI 端口仍优先 `3210`、被占用时自
 
 ## 用户数据
 
-程序只维护 `~/.dsh/profiles/whale-desktop` 中的专用 Profile 和 Whale Mist 副本。凭据、会话、附件与个人设置仍保存在用户自己的 `.dsh` 目录，不会进入源码仓库、安装包源码或 Git 历史。WSL 后端使用 WSL 内独立的 `~/.dsh`，不会读取或覆盖 Windows 的 `%USERPROFILE%\.dsh`。
+程序只维护 `~/.dsh/profiles/whale-desktop` 中的专用 Profile 和 Whale Appearance 副本。凭据、会话、附件与个人设置仍保存在用户自己的 `.dsh` 目录，不会进入源码仓库、安装包源码或 Git 历史。WSL 后端使用 WSL 内独立的 `~/.dsh`，不会读取或覆盖 Windows 的 `%USERPROFILE%\.dsh`。
 
 当前构建未使用商业代码签名证书，Windows 或安全软件可能显示“未知发布者”。

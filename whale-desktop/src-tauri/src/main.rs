@@ -21,6 +21,18 @@ use tauri::{
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 
+#[cfg(windows)]
+use webview2_com::{
+    Microsoft::Web::WebView2::Win32::{
+        COREWEBVIEW2_PERMISSION_KIND_NOTIFICATIONS, COREWEBVIEW2_PERMISSION_STATE_ALLOW,
+        ICoreWebView2_13, ICoreWebView2Profile4,
+    },
+    SetPermissionStateCompletedHandler,
+};
+
+#[cfg(windows)]
+use windows::core::{HSTRING, Interface};
+
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const READY_ATTEMPTS: usize = 240;
 const READY_INTERVAL: Duration = Duration::from_millis(500);
@@ -86,6 +98,59 @@ fn dsh_web_args(profile: &str, host: &str, port: &str) -> Vec<String> {
     .into_iter()
     .map(str::to_owned)
     .collect()
+}
+
+fn backend_origin(port: u16) -> String {
+    format!("http://127.0.0.1:{port}")
+}
+
+/// WebView2 deliberately leaves web-notification permission decisions to its
+/// host application. Grant only the exact loopback origin selected for this
+/// desktop backend; no remote website or other permission kind is affected.
+#[cfg(windows)]
+fn allow_backend_notifications(window: &WebviewWindow, origin: String) -> Result<(), String> {
+    let error_origin = origin.clone();
+    let queued_origin = origin.clone();
+    window
+        .with_webview(move |platform_webview| {
+            let setup_result: windows::core::Result<()> = (|| unsafe {
+                let core_webview = platform_webview.controller().CoreWebView2()?;
+                let core_webview_13: ICoreWebView2_13 = core_webview.cast()?;
+                let profile = core_webview_13.Profile()?;
+                let profile_4: ICoreWebView2Profile4 = profile.cast()?;
+                let origin = HSTRING::from(origin);
+                let completion_origin = queued_origin.clone();
+                let completion = SetPermissionStateCompletedHandler::create(Box::new(
+                    move |result| {
+                        if let Err(error) = result {
+                            eprintln!(
+                                "failed to grant WebView2 notification permission for {completion_origin}: {error}"
+                            );
+                        }
+                        Ok(())
+                    },
+                ));
+                profile_4.SetPermissionState(
+                    COREWEBVIEW2_PERMISSION_KIND_NOTIFICATIONS,
+                    &origin,
+                    COREWEBVIEW2_PERMISSION_STATE_ALLOW,
+                    &completion,
+                )
+            })();
+            if let Err(error) = setup_result {
+                eprintln!(
+                    "failed to configure WebView2 notification permission for {queued_origin}: {error}"
+                );
+            }
+        })
+        .map_err(|error| {
+            format!("无法为桌面 WebView 配置 Harness 通知权限（{error_origin}）：{error}")
+        })
+}
+
+#[cfg(not(windows))]
+fn allow_backend_notifications(_window: &WebviewWindow, _origin: String) -> Result<(), String> {
+    Ok(())
 }
 
 #[derive(Debug)]
@@ -880,7 +945,14 @@ fn launch_backend(app: &AppHandle, state: &DesktopState) -> Result<(), String> {
     } else {
         reserve_port()?
     };
-    let url = format!("http://127.0.0.1:{port}");
+    let url = backend_origin(port);
+    if let Some(window) = app.get_webview_window("main")
+        && let Err(error) = allow_backend_notifications(&window, url.clone())
+    {
+        // Notifications are optional; a permission API failure must not stop
+        // the Harness backend or leave the desktop shell unusable.
+        eprintln!("{error}");
+    }
     let (child, stderr_path, wsl_distro, starting_detail) = match backend {
         Backend::Windows => {
             let (child, stderr_path) = spawn_harness(app, port)?;
@@ -1093,7 +1165,7 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::{
-        choose_port, dsh_web_args, option_from_args, package_version_from_manifest,
+        backend_origin, choose_port, dsh_web_args, option_from_args, package_version_from_manifest,
         parse_wsl_distribution_line, prepare_profile_directory, resolve_wsl_workspace,
         windows_to_wsl_path,
     };
@@ -1142,6 +1214,12 @@ mod tests {
     fn desktop_web_launch_never_opens_an_external_browser() {
         let args = dsh_web_args("whale-desktop-wsl", "127.0.0.1", "3210");
         assert!(args.iter().any(|argument| argument == "--no-open"));
+    }
+
+    #[test]
+    fn notification_permission_is_scoped_to_the_selected_backend_port() {
+        assert_eq!(backend_origin(3210), "http://127.0.0.1:3210");
+        assert_eq!(backend_origin(4414), "http://127.0.0.1:4414");
     }
 
     #[test]

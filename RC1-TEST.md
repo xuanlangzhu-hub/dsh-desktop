@@ -15,7 +15,7 @@ The launcher does not read the production DSH home, replace production shortcuts
 
 ## Compatibility changes under test
 
-- Whale Mist 0.2.1 accepts the current official UI package versions and preserves its theme after model changes.
+- Whale Appearance 0.3.0 adds the default Whale Abyss dark theme, keeps Whale Mist as its light option, and preserves the selected theme after model and reasoning-effort changes.
 - vision-bridge v2 keeps the official native image pipeline for declared vision models and bridges images to local-path notes for text-only models.
 - HTML5 image drag/drop is handed to the official WebUI instead of being intercepted by Tauri.
 - Windows and WSL launch paths pass `--no-open`, so the desktop WebView does not open a second browser window.

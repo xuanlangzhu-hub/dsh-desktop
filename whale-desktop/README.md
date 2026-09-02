@@ -1,6 +1,6 @@
 # Whale Harness Desktop 0.3.0
 
-Tauri 2 desktop app for DeepSeek Harness and Whale Mist. The release carries a
+Tauri 2 desktop app for DeepSeek Harness and Whale Appearance. The release carries a
 pinned Node.js and DeepSeek Harness runtime, starts the official WebUI on a
 private localhost port, navigates the WebView to it, and owns process cleanup
 when the app exits. It does not call `npx` or download packages at startup.
@@ -63,7 +63,8 @@ complete child process tree.
 
 Set `WHALE_HARNESS_WORKSPACE` when launching from a checkout layout other than
 this workspace. The app creates `~/.dsh/profiles/whale-desktop` and refreshes an
-app-managed copy of Whale Mist there. User credentials, sessions, attachments,
+app-managed copy of Whale Appearance there. It defaults to the dark Whale Abyss
+theme and keeps Whale Mist available under Settings. User credentials, sessions, attachments,
 settings, and authored patches remain under the user's normal `.dsh` directory;
 none of them are included in the executable, portable folder, or installer.
 
@@ -72,4 +73,4 @@ Bundled versions:
 - Node.js `v24.18.0`
 - Windows fallback: `@deepseek-ai/dsh` `0.1.1-rc.1` + vision-bridge v2
 - WSL2 runtime: `@deepseek-ai/dsh` `0.1.1-rc.2` + official Vision/Files API
-- Whale Mist `0.2.1`
+- Whale Appearance `0.3.0` (`Whale Abyss` dark + `Whale Mist` light)

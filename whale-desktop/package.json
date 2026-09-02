@@ -2,7 +2,7 @@
   "name": "whale-harness-desktop",
   "version": "0.3.0",
   "private": true,
-  "description": "Tauri desktop shell for DeepSeek Harness and Whale Mist",
+  "description": "Tauri desktop shell for DeepSeek Harness and Whale Appearance",
   "scripts": {
     "tauri": "tauri",
     "dev": "tauri dev",

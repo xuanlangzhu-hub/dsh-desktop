@@ -1,7 +1,7 @@
 [package]
 name = "whale-harness-desktop"
 version = "0.3.0"
-description = "Desktop shell for DeepSeek Harness and Whale Mist"
+description = "Desktop shell for DeepSeek Harness and Whale Appearance"
 authors = ["Whale Mist"]
 edition = "2024"
 
@@ -18,3 +18,7 @@ default = []
 
 [target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
 tauri-plugin-single-instance = "2.4.3"
+
+[target.'cfg(windows)'.dependencies]
+webview2-com = "=0.38.2"
+windows = "=0.61.3"

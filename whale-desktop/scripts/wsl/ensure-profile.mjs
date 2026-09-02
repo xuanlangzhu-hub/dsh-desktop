@@ -8,7 +8,7 @@
  *   - In-box bundles (@deepseek-ai/dsh-base, @deepseek-ai/dsh-web-app) are
  *     never declared as profile dependencies; they resolve from the WSL dsh
  *     installation at boot.
- *   - Whale Mist is re-pointed at the managed theme copy inside the WSL
+ *   - Whale Appearance is re-pointed at the managed theme copy inside the WSL
  *     runtime directory (a fresh copy of source, not the Windows link).
  *   - Every other Windows plugin is re-pinned to the exact resolved tarball
  *     URL recorded in the Windows profile's pnpm-lock.yaml and installed by
@@ -88,7 +88,7 @@ const pinnedDependencies = {};
 for (const [packageName, specifier] of Object.entries(sourceDependencies)) {
   if (packageName === "dsh-whale-mist") {
     if (!existsSync(join(themeDir, "package.json"))) {
-      fail(`managed Whale Mist theme copy is missing: ${themeDir}`);
+      fail(`managed Whale Appearance copy is missing: ${themeDir}`);
     }
     pinnedDependencies[packageName] = `link:${themeDir}`;
     continue;
