@@ -57,7 +57,11 @@ npm run dev
 
 The release window owns a private DSH process under the selected profile. It
 prefers port `3210` so WebView-local appearance settings persist, and falls back
-to a free dynamic port if needed. WSL mode checks availability in both Windows
+to a free dynamic port if needed. Notification preferences are mirrored through
+the native shell so they survive those origin/port changes. The desktop applies
+a narrow, fail-closed compatibility patch to `dsh-notification`: an unfocused
+single-WebView window counts as background without changing the upstream WebUI's
+foreground behavior. WSL mode checks availability in both Windows
 and Linux before launching. Closing the window hides the app to the system tray; choosing “退出” stops the
 complete child process tree.
 

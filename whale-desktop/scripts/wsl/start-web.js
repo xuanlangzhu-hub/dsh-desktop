@@ -11,6 +11,7 @@
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { patchNotificationProfile } from "./apply-notification-desktop-bridge.mjs";
 
 function fail(message) {
   process.stderr.write(`whale-wsl start-web: ${message}\n`);
@@ -27,6 +28,7 @@ const PORT = process.env.WHALE_WSL_PORT || "3210";
 const HOST = process.env.WHALE_WSL_HOST || "127.0.0.1";
 const WORKSPACE = process.env.WHALE_WSL_WORKSPACE || HOME;
 const DSH_HOME = process.env.WHALE_WSL_DSH_HOME || join(HOME, ".dsh");
+const PROFILE_DIR = join(DSH_HOME, "profiles", PROFILE);
 const LOG_DIR = process.env.WHALE_WSL_LOG_DIR || join(RUNTIME_ROOT, "logs");
 const PID_FILE = process.env.WHALE_WSL_PID_FILE || join(RUNTIME_ROOT, "run", "dsh-web.pid");
 const LAUNCH_LOG = process.env.WHALE_WSL_LAUNCH_LOG || join(LOG_DIR, "dsh-web.launch.log");
@@ -46,6 +48,13 @@ if (!/^\d{1,5}$/.test(PORT)) fail(`invalid port: ${PORT}`);
 
 mkdirSync(LOG_DIR, { recursive: true });
 mkdirSync(join(RUNTIME_ROOT, "run"), { recursive: true });
+
+try {
+  const notificationBridge = patchNotificationProfile(PROFILE_DIR);
+  process.stdout.write(`notification focus bridge: ${notificationBridge.status}\n`);
+} catch (error) {
+  fail(String(error.message ?? error));
+}
 
 if (existsSync(PID_FILE)) {
   let stale = true;

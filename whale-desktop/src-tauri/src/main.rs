@@ -1,7 +1,8 @@
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
+    collections::BTreeMap,
     env,
     fs::{self, File, OpenOptions},
     io::{Read, Write},
@@ -23,15 +24,16 @@ use std::os::windows::process::CommandExt;
 
 #[cfg(windows)]
 use webview2_com::{
+    AddScriptToExecuteOnDocumentCreatedCompletedHandler,
     Microsoft::Web::WebView2::Win32::{
         COREWEBVIEW2_PERMISSION_KIND_NOTIFICATIONS, COREWEBVIEW2_PERMISSION_STATE_ALLOW,
         ICoreWebView2_13, ICoreWebView2Profile4,
     },
-    SetPermissionStateCompletedHandler,
+    SetPermissionStateCompletedHandler, WebMessageReceivedEventHandler, take_pwstr,
 };
 
 #[cfg(windows)]
-use windows::core::{HSTRING, Interface};
+use windows::core::{HSTRING, Interface, PWSTR};
 
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const READY_ATTEMPTS: usize = 240;
@@ -41,6 +43,9 @@ const PORT_CANDIDATE_ATTEMPTS: usize = 32;
 const DESKTOP_PROFILE: &str = "whale-desktop";
 const WSL_PROFILE: &str = "whale-desktop-wsl";
 const PROFILE_THEME_DEPENDENCY: &str = "link:./.whale-desktop/dsh-whale-mist";
+const NOTIFICATION_FOCUS_PATCH_MARKER: &str = "whale-desktop: notification focus bridge v1";
+const NOTIFICATION_SETTINGS_MESSAGE_PREFIX: &str = "__WHALE_NOTIFICATION_SETTINGS__";
+const MAX_NOTIFICATION_SETTINGS_BYTES: usize = 64 * 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Backend {
@@ -102,6 +107,236 @@ fn dsh_web_args(profile: &str, host: &str, port: &str) -> Vec<String> {
 
 fn backend_origin(port: u16) -> String {
     format!("http://127.0.0.1:{port}")
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+struct DesktopNotificationSettings {
+    values: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct NotificationSettingsMessage {
+    op: String,
+    key: String,
+    value: Option<String>,
+}
+
+fn is_notification_settings_key(key: &str) -> bool {
+    key.strip_prefix("dsh-notification.v")
+        .is_some_and(|version| {
+            !version.is_empty() && version.bytes().all(|byte| byte.is_ascii_digit())
+        })
+}
+
+fn apply_notification_settings_message(
+    settings: &mut DesktopNotificationSettings,
+    message: &str,
+) -> bool {
+    let Some(payload) = message.strip_prefix(NOTIFICATION_SETTINGS_MESSAGE_PREFIX) else {
+        return false;
+    };
+    if payload.len() > MAX_NOTIFICATION_SETTINGS_BYTES {
+        return false;
+    }
+    let Ok(message) = serde_json::from_str::<NotificationSettingsMessage>(payload) else {
+        return false;
+    };
+    if !is_notification_settings_key(&message.key) {
+        return false;
+    }
+    match message.op.as_str() {
+        "set" => {
+            let Some(value) = message.value else {
+                return false;
+            };
+            if value.len() > MAX_NOTIFICATION_SETTINGS_BYTES
+                || serde_json::from_str::<serde_json::Value>(&value).is_err()
+            {
+                return false;
+            }
+            settings.values.insert(message.key, value);
+            true
+        }
+        "remove" => {
+            settings.values.remove(&message.key);
+            true
+        }
+        _ => false,
+    }
+}
+
+fn notification_settings_bootstrap_script(
+    settings: &DesktopNotificationSettings,
+) -> Result<String, String> {
+    const PLACEHOLDER: &str = "__WHALE_INITIAL_NOTIFICATION_SETTINGS__";
+    let template = include_str!("notification-settings-bridge.js");
+    if template.matches(PLACEHOLDER).count() != 1 {
+        return Err("通知设置桥脚本占位符数量异常".into());
+    }
+    let initial = serde_json::to_string(&settings.values)
+        .map_err(|error| format!("无法序列化通知设置：{error}"))?;
+    Ok(template.replace(PLACEHOLDER, &initial))
+}
+
+fn load_notification_settings(path: &Path) -> Result<DesktopNotificationSettings, String> {
+    if !path.exists() {
+        return Ok(DesktopNotificationSettings::default());
+    }
+    let content = fs::read_to_string(path)
+        .map_err(|error| format!("无法读取桌面通知设置 {}：{error}", path.display()))?;
+    let settings = serde_json::from_str::<DesktopNotificationSettings>(&content)
+        .map_err(|error| format!("桌面通知设置无效 {}：{error}", path.display()))?;
+    if settings.values.iter().any(|(key, value)| {
+        !is_notification_settings_key(key)
+            || value.len() > MAX_NOTIFICATION_SETTINGS_BYTES
+            || serde_json::from_str::<serde_json::Value>(value).is_err()
+    }) {
+        return Err(format!("桌面通知设置包含无效数据：{}", path.display()));
+    }
+    Ok(settings)
+}
+
+fn save_notification_settings(
+    path: &Path,
+    settings: &DesktopNotificationSettings,
+) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("无法创建桌面通知设置目录 {}：{error}", parent.display()))?;
+    }
+    let content = serde_json::to_string_pretty(settings)
+        .map_err(|error| format!("无法序列化桌面通知设置：{error}"))?;
+    fs::write(path, format!("{content}\n"))
+        .map_err(|error| format!("无法保存桌面通知设置 {}：{error}", path.display()))
+}
+
+fn patch_notification_client_content(
+    content: &str,
+    target: &Path,
+) -> Result<Option<String>, String> {
+    const LEGACY_ARGUMENT: &str = "document.hidden, id, state.current";
+    const DESKTOP_ARGUMENT: &str = "document.hidden || !document.hasFocus(), id, state.current";
+    const EXPECTED_CALLS: usize = 2;
+    let legacy_count = content.matches(LEGACY_ARGUMENT).count();
+    let desktop_count = content.matches(DESKTOP_ARGUMENT).count();
+    if content.contains(NOTIFICATION_FOCUS_PATCH_MARKER) {
+        if legacy_count != 0 || desktop_count != EXPECTED_CALLS {
+            return Err(format!("通知焦点补丁状态损坏：{}", target.display()));
+        }
+        return Ok(None);
+    }
+    if legacy_count != EXPECTED_CALLS || desktop_count != 0 {
+        return Err(format!(
+            "不支持的 dsh-notification 客户端结构：{}（预期 {EXPECTED_CALLS} 个可见性判断，实际 {legacy_count} 个）",
+            target.display()
+        ));
+    }
+    Ok(Some(format!(
+        "/* {NOTIFICATION_FOCUS_PATCH_MARKER} */\n{}",
+        content.replace(LEGACY_ARGUMENT, DESKTOP_ARGUMENT)
+    )))
+}
+
+fn patch_notification_profile(profile_dir: &Path) -> Result<(), String> {
+    let target = profile_dir
+        .join("node_modules")
+        .join("dsh-notification")
+        .join("lib")
+        .join("client.js");
+    if !target.exists() {
+        return Ok(());
+    }
+    let content = fs::read_to_string(&target)
+        .map_err(|error| format!("无法读取通知插件 {}：{error}", target.display()))?;
+    if let Some(patched) = patch_notification_client_content(&content, &target)? {
+        fs::write(&target, patched)
+            .map_err(|error| format!("无法写入通知焦点补丁 {}：{error}", target.display()))?;
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn is_loopback_backend_source(source: &str) -> bool {
+    source.starts_with("http://127.0.0.1:") || source.starts_with("http://localhost:")
+}
+
+#[cfg(windows)]
+fn setup_notification_settings_bridge(
+    window: &WebviewWindow,
+    settings_path: PathBuf,
+) -> Result<(), String> {
+    let settings = load_notification_settings(&settings_path)?;
+    let script = notification_settings_bootstrap_script(&settings)?;
+    let shared = Arc::new(Mutex::new(settings));
+    window
+        .with_webview(move |platform_webview| {
+            let setup_result: windows::core::Result<()> = (|| unsafe {
+                let core_webview = platform_webview.controller().CoreWebView2()?;
+                let callback_settings = shared.clone();
+                let callback_path = settings_path.clone();
+                let callback =
+                    WebMessageReceivedEventHandler::create(Box::new(move |_sender, args| {
+                        let Some(args) = args else {
+                            return Ok(());
+                        };
+                        let mut source = PWSTR::null();
+                        args.Source(&mut source)?;
+                        if !is_loopback_backend_source(&take_pwstr(source)) {
+                            return Ok(());
+                        }
+                        let mut raw_message = PWSTR::null();
+                        args.TryGetWebMessageAsString(&mut raw_message)?;
+                        let raw_message = take_pwstr(raw_message);
+                        let Ok(mut settings) = callback_settings.lock() else {
+                            return Ok(());
+                        };
+                        if apply_notification_settings_message(&mut settings, &raw_message)
+                            && let Err(error) =
+                                save_notification_settings(&callback_path, &settings)
+                        {
+                            eprintln!("{error}");
+                        }
+                        Ok(())
+                    }));
+                let mut token = 0;
+                core_webview.add_WebMessageReceived(&callback, &mut token)?;
+                Ok(())
+            })();
+            if let Err(error) = setup_result {
+                eprintln!("failed to register WebView2 notification settings channel: {error}");
+                return;
+            }
+
+            let core_webview = match unsafe { platform_webview.controller().CoreWebView2() } {
+                Ok(webview) => webview,
+                Err(error) => {
+                    eprintln!("failed to access WebView2 for notification settings: {error}");
+                    return;
+                }
+            };
+            if let Err(error) =
+                AddScriptToExecuteOnDocumentCreatedCompletedHandler::wait_for_async_operation(
+                    Box::new(move |handler| unsafe {
+                        let script = HSTRING::from(script);
+                        core_webview
+                            .AddScriptToExecuteOnDocumentCreated(&script, &handler)
+                            .map_err(webview2_com::Error::WindowsError)
+                    }),
+                    Box::new(|error_code, _script_id| error_code),
+                )
+            {
+                eprintln!("failed to inject WebView2 notification settings bridge: {error}");
+            }
+        })
+        .map_err(|error| format!("无法配置桌面通知设置桥：{error}"))
+}
+
+#[cfg(not(windows))]
+fn setup_notification_settings_bridge(
+    _window: &WebviewWindow,
+    _settings_path: PathBuf,
+) -> Result<(), String> {
+    Ok(())
 }
 
 /// WebView2 deliberately leaves web-notification permission decisions to its
@@ -724,7 +959,8 @@ fn prepare_profile_directory(profile_dir: &Path, runtime_theme: &Path) -> Result
 
 fn prepare_desktop_profile(app: &AppHandle, runtime: &RuntimePaths) -> Result<(), String> {
     let profile_dir = dsh_home_dir(app)?.join("profiles").join(DESKTOP_PROFILE);
-    prepare_profile_directory(&profile_dir, &runtime.theme)
+    prepare_profile_directory(&profile_dir, &runtime.theme)?;
+    patch_notification_profile(&profile_dir)
 }
 
 fn log_files(app: &AppHandle) -> Result<(File, File, PathBuf), String> {
@@ -1131,6 +1367,23 @@ fn main() {
             if let Err(error) = setup_tray(app) {
                 eprintln!("failed to create system tray: {error}");
             }
+            if let Some(window) = app.get_webview_window("main") {
+                match app.path().app_local_data_dir() {
+                    Ok(directory) => {
+                        let settings_path = directory.join("notification-settings.json");
+                        if let Err(error) =
+                            setup_notification_settings_bridge(&window, settings_path)
+                        {
+                            eprintln!("{error}");
+                        }
+                    }
+                    Err(error) => {
+                        eprintln!(
+                            "failed to locate desktop notification settings directory: {error}"
+                        )
+                    }
+                }
+            }
             if let Err(error) = launch_backend(app.handle(), &state) {
                 update_status(&state, "failed", &error, None);
                 if let Some(window) = app.get_webview_window("main") {
@@ -1165,9 +1418,11 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::{
-        backend_origin, choose_port, dsh_web_args, option_from_args, package_version_from_manifest,
-        parse_wsl_distribution_line, prepare_profile_directory, resolve_wsl_workspace,
-        windows_to_wsl_path,
+        DesktopNotificationSettings, apply_notification_settings_message, backend_origin,
+        choose_port, dsh_web_args, load_notification_settings,
+        notification_settings_bootstrap_script, option_from_args, package_version_from_manifest,
+        parse_wsl_distribution_line, patch_notification_client_content, prepare_profile_directory,
+        resolve_wsl_workspace, save_notification_settings, windows_to_wsl_path,
     };
     use std::{
         fs,
@@ -1220,6 +1475,91 @@ mod tests {
     fn notification_permission_is_scoped_to_the_selected_backend_port() {
         assert_eq!(backend_origin(3210), "http://127.0.0.1:3210");
         assert_eq!(backend_origin(4414), "http://127.0.0.1:4414");
+    }
+
+    #[test]
+    fn notification_settings_bridge_accepts_only_versioned_plugin_settings() {
+        let mut settings = DesktopNotificationSettings::default();
+        assert!(apply_notification_settings_message(
+            &mut settings,
+            r#"__WHALE_NOTIFICATION_SETTINGS__{"op":"set","key":"dsh-notification.v4","value":"{\"enabled\":true,\"backgroundOnly\":false}"}"#,
+        ));
+        assert_eq!(
+            settings
+                .values
+                .get("dsh-notification.v4")
+                .map(String::as_str),
+            Some(r#"{"enabled":true,"backgroundOnly":false}"#)
+        );
+        assert!(!apply_notification_settings_message(
+            &mut settings,
+            r#"__WHALE_NOTIFICATION_SETTINGS__{"op":"set","key":"other-plugin.v1","value":"{}"}"#,
+        ));
+        assert!(!apply_notification_settings_message(
+            &mut settings,
+            r#"__WHALE_NOTIFICATION_SETTINGS__{"op":"set","key":"dsh-notification.v5","value":"not-json"}"#,
+        ));
+        assert!(apply_notification_settings_message(
+            &mut settings,
+            r#"__WHALE_NOTIFICATION_SETTINGS__{"op":"remove","key":"dsh-notification.v4"}"#,
+        ));
+        assert!(settings.values.is_empty());
+    }
+
+    #[test]
+    fn notification_settings_bootstrap_restores_before_wrapping_storage() {
+        let mut settings = DesktopNotificationSettings::default();
+        settings.values.insert(
+            "dsh-notification.v4".into(),
+            r#"{"enabled":true,"backgroundOnly":false}"#.into(),
+        );
+        let script = notification_settings_bootstrap_script(&settings).unwrap();
+        let restore = script
+            .find("for (const [key, value] of Object.entries(initial))")
+            .unwrap();
+        let wrap = script.find("Storage.prototype.setItem = function").unwrap();
+        assert!(restore < wrap);
+        assert!(script.contains("dsh-notification.v4"));
+        assert!(!script.contains("__WHALE_INITIAL_NOTIFICATION_SETTINGS__"));
+    }
+
+    #[test]
+    fn notification_settings_survive_a_native_store_round_trip() {
+        let temp = TestDirectory::new();
+        let path = temp.0.join("notification-settings.json");
+        let mut settings = DesktopNotificationSettings::default();
+        settings.values.insert(
+            "dsh-notification.v4".into(),
+            r#"{"enabled":true,"backgroundOnly":false}"#.into(),
+        );
+        save_notification_settings(&path, &settings).unwrap();
+        let restored = load_notification_settings(&path).unwrap();
+        assert_eq!(restored.values, settings.values);
+    }
+
+    #[test]
+    fn notification_focus_patch_treats_an_unfocused_webview_as_background() {
+        let target = Path::new("dsh-notification/lib/client.js");
+        let fixture = [
+            "const first = shouldShow(permission, current.backgroundOnly, document.hidden, id, state.current);",
+            "const second = shouldShow(permission, current.backgroundOnly, document.hidden, id, state.current);",
+        ]
+        .join("\n");
+        let patched = patch_notification_client_content(&fixture, target)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            patched
+                .matches("document.hidden || !document.hasFocus()")
+                .count(),
+            2
+        );
+        assert!(
+            patch_notification_client_content(&patched, target)
+                .unwrap()
+                .is_none()
+        );
+        assert!(patch_notification_client_content("upstream changed", target).is_err());
     }
 
     #[test]

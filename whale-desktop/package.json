@@ -13,7 +13,8 @@
     "qa:vision-bridge": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File qa/vision-bridge-regression.ps1",
     "qa:drag-drop": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File qa/drag-drop-regression.ps1",
     "qa:single-instance": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File qa/single-instance-regression.ps1",
-    "check": "node --check dist/app.js && npm run qa:vision-bridge && npm run qa:drag-drop && cargo check --manifest-path src-tauri/Cargo.toml"
+    "qa:notification-bridge": "node qa/notification-desktop-bridge-regression.mjs",
+    "check": "node --check dist/app.js && node --check scripts/wsl/start-web.js && npm run qa:vision-bridge && npm run qa:drag-drop && npm run qa:notification-bridge && cargo check --manifest-path src-tauri/Cargo.toml"
   },
   "devDependencies": {
     "@tauri-apps/cli": "2.11.4"

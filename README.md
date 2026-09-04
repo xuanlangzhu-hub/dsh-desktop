@@ -12,7 +12,7 @@
 
 ## 本机启动
 
-在当前工作区双击 `Whale Harness Desktop.lnk` 默认使用 WSL2 后端；`Whale Harness Desktop (Windows).lnk` 保留为纯 Windows 备用入口。正式程序优先使用 `3210` 端口，被占用时自动回退到空闲端口；关闭窗口会将应用隐藏到系统托盘并保持后端运行；从托盘菜单选择“退出”才会回收完整 DSH 进程树。
+在当前工作区双击 `Whale Harness Desktop.lnk` 默认使用 WSL2 后端；`Whale Harness Desktop (Windows).lnk` 保留为纯 Windows 备用入口。正式程序优先使用 `3210` 端口，被占用时自动回退到空闲端口；通知设置由桌面壳跨端口持久化，当前会话在窗口失焦、最小化或进入托盘后仍可收到完成提醒；关闭窗口会将应用隐藏到系统托盘并保持后端运行；从托盘菜单选择“退出”才会回收完整 DSH 进程树。
 
 > Windows 快捷方式必须从 Windows 本地路径（例如 `F:\deepseekharness`）启动。不要通过 `\\wsl.localhost\...` 双击 `.lnk` 或 `.cmd`；Windows Shell/PowerShell 读取 WSL UNC 启动文件可能长时间阻塞。WSL 原生项目目录只作为 Harness 后端工作区使用。
 
