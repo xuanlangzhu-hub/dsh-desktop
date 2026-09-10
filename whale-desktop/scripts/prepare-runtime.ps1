@@ -32,19 +32,32 @@ finally {
 }
 
 $modulesRoot = [System.IO.Path]::GetFullPath((Join-Path $dshRoot 'node_modules'))
-$visionBridgeScript = Join-Path $PSScriptRoot 'apply-vision-bridge.ps1'
-& $visionBridgeScript -ModulesRoot $modulesRoot
+$dshManifest = Join-Path $modulesRoot '@deepseek-ai\dsh\package.json'
+$dshVersion = (Get-Content -LiteralPath $dshManifest -Raw | ConvertFrom-Json).version
 
-$visionBridgeTargets = Get-ChildItem -LiteralPath $modulesRoot -Recurse -File -Filter 'index.js' | Where-Object {
-    $_.FullName -match '@deepseek-ai[\\/](dsh-host-apiproxy|dsh-llm-deepseek)[\\/]lib[\\/]index\.js$'
-}
-if (@($visionBridgeTargets).Count -lt 2) {
-    throw "vision-bridge v2 syntax-check targets missing under $modulesRoot"
-}
-foreach ($target in $visionBridgeTargets) {
-    & (Join-Path $nodeRoot 'node.exe') --check $target.FullName
-    if ($LASTEXITCODE -ne 0) {
-        throw "vision-bridge v2 produced invalid JavaScript: $($target.FullName)"
+switch ($dshVersion) {
+    { $_ -in @('0.1.0-rc.6', '0.1.1-rc.1') } {
+        $visionBridgeScript = Join-Path $PSScriptRoot 'apply-vision-bridge.ps1'
+        & $visionBridgeScript -ModulesRoot $modulesRoot
+
+        $visionBridgeTargets = Get-ChildItem -LiteralPath $modulesRoot -Recurse -File -Filter 'index.js' | Where-Object {
+            $_.FullName -match '@deepseek-ai[\\/](dsh-host-apiproxy|dsh-llm-deepseek)[\\/]lib[\\/]index\.js$'
+        }
+        if (@($visionBridgeTargets).Count -lt 2) {
+            throw "vision-bridge v2 syntax-check targets missing under $modulesRoot"
+        }
+        foreach ($target in $visionBridgeTargets) {
+            & (Join-Path $nodeRoot 'node.exe') --check $target.FullName
+            if ($LASTEXITCODE -ne 0) {
+                throw "vision-bridge v2 produced invalid JavaScript: $($target.FullName)"
+            }
+        }
+    }
+    { $_ -in @('0.1.1-rc.2', '0.1.5-rc.1') } {
+        Write-Output "Using the official Vision/Files pipeline in DSH $dshVersion."
+    }
+    default {
+        throw "Unsupported DSH version $dshVersion; review image compatibility before preparing the runtime."
     }
 }
 
@@ -64,8 +77,6 @@ foreach ($target in $pruneTargets) {
     }
 }
 
-$dshManifest = Join-Path $modulesRoot '@deepseek-ai\dsh\package.json'
-$dshVersion = (Get-Content -LiteralPath $dshManifest -Raw | ConvertFrom-Json).version
 $size = (Get-ChildItem -LiteralPath $runtimeRoot -Recurse -File | Measure-Object Length -Sum).Sum
 
 [pscustomobject]@{

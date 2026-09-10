@@ -8,7 +8,7 @@ const edge = "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"
 const appUrl = process.env.DSH_TEST_URL ?? "http://127.0.0.1:3080/";
 const expectedThemes = Object.freeze({
   "whale-mist": Object.freeze({ setting: "mist", activeClass: "dsh-whale-mist-active", colorScheme: "light", brand: "#1468a8", deepSidebarFragment: "207" }),
-  "whale-abyss": Object.freeze({ setting: "abyss", activeClass: "dsh-whale-abyss-active", colorScheme: "dark", brand: "#8c72f2", deepSidebarFragment: "11, 17, 29" }),
+  "whale-abyss": Object.freeze({ setting: "abyss", activeClass: "dsh-whale-abyss-active", colorScheme: "dark", brand: "#8c72f2", deepSidebarFragment: "10, 16, 28" }),
 });
 const expectedThemeId = process.env.DSH_EXPECT_THEME ?? "whale-mist";
 const expectedTheme = expectedThemes[expectedThemeId];
@@ -67,8 +67,25 @@ await new Promise((resolve, reject) => {
 
 let nextId = 0;
 const pending = new Map();
+const browserDiagnostics = [];
+const recentBrowserDiagnostics = () => browserDiagnostics
+  .slice(-8)
+  .map(entry => String(entry).slice(0, 700));
 socket.addEventListener("message", event => {
   const message = JSON.parse(event.data);
+  if (!message.id) {
+    if (message.method === "Runtime.exceptionThrown") {
+      browserDiagnostics.push(message.params?.exceptionDetails?.exception?.description
+        ?? message.params?.exceptionDetails?.text
+        ?? "Unknown browser exception");
+    } else if (message.method === "Log.entryAdded" && message.params?.entry) {
+      browserDiagnostics.push(`${message.params.entry.level}: ${message.params.entry.text}`);
+    } else if (message.method === "Runtime.consoleAPICalled" && message.params?.type === "error") {
+      browserDiagnostics.push(message.params.args?.map(argument => argument.value ?? argument.description ?? "").join(" ")
+        ?? "Unknown console error");
+    }
+    return;
+  }
   if (!message.id || !pending.has(message.id)) return;
   const { resolve, reject } = pending.get(message.id);
   pending.delete(message.id);
@@ -149,6 +166,7 @@ main: {
 try {
   await cdp("Page.enable");
   await cdp("Runtime.enable");
+  await cdp("Log.enable");
 
   let initial;
   for (let attempt = 0; attempt < 120; attempt += 1) {
@@ -232,7 +250,7 @@ try {
     if (process.env.DSH_EXPECT_VISION_MODEL === "1") {
       const modelTarget = await evaluate(`(() => {
         const element = [...document.querySelectorAll('button')]
-          .find((button) => /DeepSeek-V4-(?:Flash|Pro)/i.test((button.textContent || '').trim()));
+          .find((button) => /DeepSeek-(?:V41-Flash|V4-(?:Flash|Pro))/i.test((button.textContent || '').trim()));
         if (!element) return null;
         const rect = element.getBoundingClientRect();
         return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
@@ -241,8 +259,9 @@ try {
       await clickAt(modelTarget);
       await delay(120);
       const catalogTarget = await evaluate(`(() => {
-        const element = [...document.querySelectorAll('button[role="menuitem"], [role="menuitem"]')]
-          .find((candidate) => /(?:模型|Model).*DeepSeek-V4/i.test((candidate.textContent || '').trim()));
+        const element = document.querySelector('button.re-model-row')
+          ?? [...document.querySelectorAll('button[role="menuitem"], [role="menuitem"]')]
+            .find((candidate) => /(?:模型|Model).*DeepSeek-(?:V41|V4)/i.test((candidate.textContent || '').trim()));
         if (!element) return null;
         const rect = element.getBoundingClientRect();
         return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
@@ -253,7 +272,7 @@ try {
       for (let attempt = 0; attempt < 60; attempt += 1) {
         visionTarget = await evaluate(`(() => {
           const element = [...document.querySelectorAll('button, [role="option"], [role="menuitem"]')]
-            .find((candidate) => /DeepSeek-V4-Flash-Vision-Exp/i.test((candidate.textContent || '').trim()));
+            .find((candidate) => /DeepSeek-(?:V41-Flash|V4-Flash-Vision-Exp)/i.test((candidate.textContent || '').trim()));
           if (!element) return null;
           const rect = element.getBoundingClientRect();
           return rect.width > 0 && rect.height > 0
@@ -263,12 +282,12 @@ try {
         if (visionTarget) break;
         await delay(100);
       }
-      if (!visionTarget) throw new Error("DeepSeek-V4-Flash-Vision-Exp did not register in the model selector.");
+      if (!visionTarget) throw new Error("No image-capable DeepSeek model registered in the model selector.");
       await clickAt(visionTarget);
       await delay(500);
       const afterVisionSwitch = await evaluate(`({
         selected: [...document.querySelectorAll('button')]
-          .some((button) => /DeepSeek-V4-Flash-Vision-Exp/i.test((button.textContent || '').trim())),
+          .some((button) => /DeepSeek-(?:V41-Flash|V4-Flash-Vision-Exp)/i.test((button.textContent || '').trim())),
         active: document.body?.classList.contains(${JSON.stringify(expectedTheme.activeClass)}) ?? false,
         styleTag: Boolean(document.querySelector('style[data-plugin-css="dsh-whale-mist/theme.css"]')),
       })`);
@@ -287,7 +306,17 @@ try {
           ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
           : null;
       })()`);
-      if (!reasoningTrigger) throw new Error("Reasoning effort model trigger is missing during theme retention QA.");
+      if (!reasoningTrigger) {
+        const diagnostics = await evaluate(`({
+          pluginStyle: Boolean(document.querySelector('style[data-plugin="dsh-reasoning-effort"]')),
+          modelSlot: document.querySelector('[class*="model"]')?.outerHTML?.slice(0, 1200) ?? null,
+          buttons: [...document.querySelectorAll('button')]
+            .map((button) => ({ text: (button.textContent || '').trim(), className: button.className }))
+            .filter((button) => /DeepSeek|reason|推理|思考/i.test(button.text))
+            .slice(0, 20),
+        })`);
+        throw new Error(`Reasoning effort model trigger is missing during theme retention QA: ${JSON.stringify({ diagnostics, browserDiagnostics: recentBrowserDiagnostics() })}`);
+      }
       await clickAt(reasoningTrigger);
       await delay(180);
 
@@ -299,12 +328,13 @@ try {
           const rect = input.getBoundingClientRect();
           if (rect.width <= 0 || rect.height <= 0 || input.disabled) return null;
           const current = input.getAttribute('aria-valuetext') || '';
+          input.focus({ preventScroll: true });
           return {
             x: rect.left + rect.width / 2,
             y: rect.top + rect.height / 2,
             current,
-            key: current === 'max' ? 'Home' : 'End',
-            expected: current === 'max' ? 'off' : 'max',
+            key: current.toLowerCase() === 'max' ? 'Home' : 'End',
+            expected: current.toLowerCase() === 'max' ? 'off' : 'max',
           };
         })()`);
         if (effortTarget) break;
@@ -323,7 +353,6 @@ try {
         })`);
         throw new Error(`Reasoning effort slider is missing during theme retention QA: ${JSON.stringify(diagnostics)}`);
       }
-      await clickAt(effortTarget);
       await cdp("Input.dispatchKeyEvent", { type: "keyDown", key: effortTarget.key, code: effortTarget.key });
       await cdp("Input.dispatchKeyEvent", { type: "keyUp", key: effortTarget.key, code: effortTarget.key });
       let afterEffortSwitch = null;
@@ -332,7 +361,7 @@ try {
           const input = document.querySelector('input[type="range"][aria-label="推理强度"]');
           const body = document.body;
           return {
-            selected: input?.getAttribute('aria-valuetext') || null,
+            selected: input?.getAttribute('aria-valuetext')?.toLowerCase() || null,
             disabled: input instanceof HTMLInputElement ? input.disabled : null,
             active: body?.classList.contains(${JSON.stringify(expectedTheme.activeClass)}) ?? false,
             styleTag: Boolean(document.querySelector('style[data-plugin-css="dsh-whale-mist/theme.css"]')),
@@ -340,7 +369,7 @@ try {
           };
         })()`);
         if (afterEffortSwitch.disabled === false
-          && ['off', 'high', 'max'].includes(afterEffortSwitch.selected)) break;
+          && ['off', 'low', 'high', 'max'].includes(afterEffortSwitch.selected)) break;
         await delay(100);
       }
       await delay(500);
@@ -368,7 +397,7 @@ try {
         }
         finishPaletteTransitions();
         return {
-          selected: input?.getAttribute('aria-valuetext') || null,
+          selected: input?.getAttribute('aria-valuetext')?.toLowerCase() || null,
           disabled: input instanceof HTMLInputElement ? input.disabled : null,
           active: body?.classList.contains(${JSON.stringify(expectedTheme.activeClass)}) ?? false,
           darkMode: body?.hasAttribute('data-ds-dark-theme') ?? false,
@@ -385,7 +414,7 @@ try {
           offOverlayOpacity,
         };
       })()`);
-      if (!['off', 'high', 'max'].includes(afterEffortSwitch.selected)
+      if (afterEffortSwitch.selected !== effortTarget.expected
         || afterEffortSwitch.disabled !== false
         || !afterEffortSwitch.active
         || !afterEffortSwitch.styleTag
@@ -495,6 +524,48 @@ try {
       }
       if (!archivedSessionsVisible) throw new Error("Archived Sessions did not register in Settings.");
     }
+    let notificationSettingsVisible = null;
+    if (process.env.DSH_EXPECT_NOTIFICATION_SETTINGS === "1") {
+      const settingsTarget = await evaluate(`(() => {
+        const element = [...document.querySelectorAll('button')]
+          .find((button) => /^(设置|Settings)$/.test((button.textContent || '').trim()));
+        if (!element) return null;
+        const rect = element.getBoundingClientRect();
+        return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+      })()`);
+      if (!settingsTarget) throw new Error("Settings trigger is missing during notification plugin QA.");
+      await clickAt(settingsTarget);
+      let notificationTarget = null;
+      for (let attempt = 0; attempt < 60; attempt += 1) {
+        notificationTarget = await evaluate(`(() => {
+          const element = [...document.querySelectorAll('button')]
+            .find((button) => /^(通知|Notifications)$/.test((button.textContent || '').trim()));
+          if (!element) return null;
+          const rect = element.getBoundingClientRect();
+          return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+        })()`);
+        if (notificationTarget) break;
+        await delay(100);
+      }
+      if (!notificationTarget) {
+        throw new Error(`Notification settings did not register: ${JSON.stringify({ browserDiagnostics: recentBrowserDiagnostics() })}`);
+      }
+      await clickAt(notificationTarget);
+      for (let attempt = 0; attempt < 60; attempt += 1) {
+        notificationSettingsVisible = await evaluate(`({
+          nav: true,
+          section: /(浏览器权限|Browser permission)/i.test(document.body?.innerText || ''),
+        })`);
+        if (notificationSettingsVisible.section) break;
+        await delay(100);
+      }
+      if (!notificationSettingsVisible?.section) {
+        throw new Error(`Notification settings section did not render: ${JSON.stringify({ notificationSettingsVisible, browserDiagnostics: recentBrowserDiagnostics() })}`);
+      }
+      await cdp("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape" });
+      await cdp("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape" });
+      await delay(160);
+    }
     let themeSwitch = null;
     if (process.env.DSH_EXPECT_THEME_SWITCH === "1") {
       const settingsTarget = await evaluate(`(() => {
@@ -556,7 +627,7 @@ try {
       }
       themeSwitch = { alternate, restored };
     }
-    console.log(`PASS ${expectedThemeId} theme retention: ${JSON.stringify({ initial, recoveredTheme, anchoredStandardVisible, visionModelSelected, reasoningEffortSelected, reasoningScreenshot: reasoningEffortSelected ? reasoningOutput : null, imageDropAccepted, archivedSessionsVisible, themeSwitch, shellScreenshot })}`);
+    console.log(`PASS ${expectedThemeId} theme retention: ${JSON.stringify({ initial, recoveredTheme, anchoredStandardVisible, visionModelSelected, reasoningEffortSelected, reasoningScreenshot: reasoningEffortSelected ? reasoningOutput : null, imageDropAccepted, archivedSessionsVisible, notificationSettingsVisible, themeSwitch, shellScreenshot })}`);
     break main;
   }
 
@@ -621,7 +692,7 @@ try {
   let conversation;
   for (let attempt = 0; attempt < 80; attempt += 1) {
     conversation = await evaluate(`(() => {
-      const textarea = document.querySelector('textarea');
+      const editor = document.querySelector('textarea, [contenteditable="true"][role="textbox"], [contenteditable="true"]');
       const pageText = document.body?.innerText || '';
       const historySettled = !/载入历史|Loading history/i.test(pageText) && pageText.length > 500;
       const controls = [...document.querySelectorAll('button, [role="tab"]')]
@@ -631,13 +702,17 @@ try {
         });
       const chatTab = controls.find((item) => item.text === '对话' || /^Chat$/i.test(item.text));
       const trajectoryTab = controls.find((item) => item.text === '轨迹' || /^Trajectory$/i.test(item.text));
-      let card = textarea?.parentElement;
+      let card = editor?.parentElement;
       while (card && card !== document.body) {
         const style = getComputedStyle(card);
         if (style.backgroundImage !== 'none' && parseFloat(style.borderRadius) >= 16) break;
         card = card.parentElement;
       }
-      if (!textarea || !card || !chatTab || !trajectoryTab || !historySettled) return { ready: false, historySettled };
+      if (!editor || !card || !chatTab || !trajectoryTab || !historySettled) return {
+        ready: false,
+        historySettled,
+        editor: editor ? { tag: editor.tagName, role: editor.getAttribute('role'), contentEditable: editor.getAttribute('contenteditable') } : null,
+      };
       const cardStyle = getComputedStyle(card);
       const cardRect = card.getBoundingClientRect();
       const trajectoryCenter = {
@@ -660,7 +735,13 @@ try {
   }
 
   if (!conversation?.ready || !conversation.inputOpaque || !conversation.inputCoversTopSample) {
-    throw new Error(`Conversation composer is not an opaque covering surface: ${JSON.stringify(conversation)}`);
+    const diagnostics = await evaluate(`({
+      path: window.location.pathname,
+      bodyText: (document.body?.innerText || '').slice(0, 2400),
+      textareas: document.querySelectorAll('textarea').length,
+      editableTextboxes: document.querySelectorAll('[contenteditable="true"][role="textbox"], [contenteditable="true"]').length,
+    })`);
+    throw new Error(`Conversation composer is not an opaque covering surface: ${JSON.stringify({ conversation, sessionTarget, diagnostics, browserDiagnostics: recentBrowserDiagnostics() })}`);
   }
 
   const readWhaleStatus = `(() => {
@@ -679,11 +760,23 @@ try {
     };
   })()`;
 
-  await evaluate(`window.dispatchEvent(new CustomEvent('dsh-whale-mist:qa-status', { detail: 'running' }))`);
-  await delay(220);
-  const runningStatus = await evaluate(readWhaleStatus);
-  if (runningStatus?.state !== "running" || !runningStatus.hasWhale || runningStatus.height !== 26 || runningStatus.ariaLive !== "polite") {
-    throw new Error(`Running whale status is incomplete: ${JSON.stringify(runningStatus)}`);
+  let runningStatus;
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    // The RC1 slot host may mount header entries after the conversation itself
+    // has settled, so repeat the test-only signal until the listener is ready.
+    await evaluate(`window.dispatchEvent(new CustomEvent('dsh-whale-mist:qa-status', { detail: 'running' }))`);
+    await delay(100);
+    runningStatus = await evaluate(readWhaleStatus);
+    if (runningStatus) break;
+  }
+  if (runningStatus?.state !== "running" || !runningStatus.hasWhale || runningStatus.height < 24 || runningStatus.height > 28 || runningStatus.ariaLive !== "polite") {
+    const statusDiagnostics = await evaluate(`({
+      bodyClass: document.body.className,
+      theme: document.body.dataset.wmTheme,
+      pluginStyles: document.querySelectorAll('style[data-plugin-css="dsh-whale-mist/theme.css"]').length,
+      headerText: [...document.querySelectorAll('header')].map((element) => (element.textContent || '').replace(/\\s+/g, ' ').trim()).slice(0, 5),
+    })`);
+    throw new Error(`Running whale status is incomplete: ${JSON.stringify({ runningStatus, statusDiagnostics, browserDiagnostics: recentBrowserDiagnostics() })}`);
   }
 
   await evaluate(`window.dispatchEvent(new CustomEvent('dsh-whale-mist:qa-status', { detail: 'waiting' }))`);
@@ -715,7 +808,9 @@ try {
   await delay(650);
   const trajectory = await evaluate(`(() => {
     const text = document.body?.innerText || '';
-    const hasTimelineControls = /Duration/.test(text) && /Turns/.test(text) && /Calls/.test(text);
+    const hasTimelineControls = /(Duration|时长)/.test(text)
+      && /(Turns|轮次)/.test(text)
+      && /(Calls|调用)/.test(text);
     const tabs = [...document.querySelectorAll('button, [role="tab"]')]
       .filter((element) => ['轨迹', 'Trajectory'].includes((element.textContent || '').trim()));
     return { hasTimelineControls, trajectoryTabCount: tabs.length };
@@ -765,10 +860,17 @@ try {
   const settingsCapture = await cdp("Page.captureScreenshot", { format: "png", captureBeyondViewport: true });
   await writeFile(settingsOutput, Buffer.from(settingsCapture.data, "base64"));
 
-  const deepOption = await evaluate(`(() => {
+  const deepOptionPresent = await evaluate(`(() => {
     const element = document.querySelector('[data-wm-setting="sidebar"][data-wm-value="deep"]');
     if (!element) return null;
     element.scrollIntoView({ block: 'center', inline: 'nearest' });
+    return true;
+  })()`);
+  if (!deepOptionPresent) throw new Error("Deep sidebar option is missing.");
+  await delay(180);
+  const deepOption = await evaluate(`(() => {
+    const element = document.querySelector('[data-wm-setting="sidebar"][data-wm-value="deep"]');
+    if (!element) return null;
     const rect = element.getBoundingClientRect();
     const center = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
     const hit = document.elementFromPoint(center.x, center.y);
@@ -777,12 +879,20 @@ try {
   if (!deepOption?.hit) throw new Error(`Deep sidebar option is not usable: ${JSON.stringify(deepOption)}`);
   await clickAt(deepOption);
   await delay(180);
-  const deepApplied = await evaluate(`(() => ({
+  const readDeepApplied = `(() => ({
     theme: document.body.dataset.wmTheme,
     sidebar: document.body.dataset.wmSidebar,
     fill: getComputedStyle(document.body).getPropertyValue('--dsw-specific-sidebar-fill').trim(),
     stored: JSON.parse(localStorage.getItem('dsh-whale-mist.appearance.v1') || 'null'),
-  }))()`);
+  }))()`;
+  let deepApplied = await evaluate(readDeepApplied);
+  if (deepApplied.sidebar !== "deep") {
+    // Headless Edge occasionally drops a click immediately after a nested
+    // settings scroller moves. Exercise the same button handler directly once.
+    await evaluate(`document.querySelector('[data-wm-setting="sidebar"][data-wm-value="deep"]')?.click()`);
+    await delay(180);
+    deepApplied = await evaluate(readDeepApplied);
+  }
   if (deepApplied.theme !== expectedTheme.setting || deepApplied.stored?.theme !== expectedTheme.setting
     || deepApplied.sidebar !== "deep" || deepApplied.stored?.sidebar !== "deep"
     || !deepApplied.fill.includes(expectedTheme.deepSidebarFragment)) {

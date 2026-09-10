@@ -23,13 +23,13 @@ npx --yes @deepseek-ai/dsh plugin --profile web add ./dsh-whale-mist
 - 鲸渊以 `#8C72F2` 紫色作为选择、焦点和推理光效强调色，不把整张界面做成霓虹紫。
 - 玻璃只用于分层表面；长会话上方的输入卡片使用不透明渐变，滚动文字不会穿透。
 - 官方“设置 → 通用”中提供主题、背景层次、侧栏层次和玻璃强度四组简洁选项。
-- 标题旁的白鲸只在 Agent 运行、等待确认或刚刚完成时出现，状态直接来自官方会话快照。
+- 标题旁的白鲸只在 Agent 运行或刚刚完成时出现；旧版 Harness 仍会显示会话快照提供的“等待确认”状态。`0.1.5-rc.1` 不再公开该字段，因此插件会安全降级，不影响标题栏和会话输入区。
 - 系统字体栈与明确行高保持中文排版稳定。
 - 高频交互没有装饰性进场动画；按钮只有 120ms 的按压反馈。
 - 可选的 `dsh-reasoning-effort` 在鲸雾下使用蓝白静态轨道，已激活区域以淡紫—深紫波浪表达强度；鲸渊保留插件原版深色紫色辐射效果。
 - 支持 `prefers-reduced-motion`、`prefers-reduced-transparency` 和高对比度。
 
-当前兼容目标为 Windows fallback 的 DeepSeek Harness `0.1.0-rc.6` 与 WSL2 runtime 的 `0.1.1-rc.2`。
+当前主要兼容目标为 Windows 与 WSL2 runtime 的 DeepSeek Harness `0.1.5-rc.1`；peer 范围仍保留 `0.1.0-rc.6`、`0.1.1-rc.1` 与 `0.1.1-rc.2`，便于显式回滚。
 
 ## 回归检查
 

@@ -1,6 +1,6 @@
 [package]
 name = "whale-harness-desktop"
-version = "0.3.0"
+version = "0.4.0"
 description = "Desktop shell for DeepSeek Harness and Whale Appearance"
 authors = ["Whale Mist"]
 edition = "2024"

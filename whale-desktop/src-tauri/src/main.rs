@@ -17,6 +17,7 @@ use tauri::{
     AppHandle, Manager, State, WebviewWindow,
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    webview::Cookie,
 };
 
 #[cfg(windows)]
@@ -43,6 +44,7 @@ const PORT_CANDIDATE_ATTEMPTS: usize = 32;
 const DESKTOP_PROFILE: &str = "whale-desktop";
 const WSL_PROFILE: &str = "whale-desktop-wsl";
 const PROFILE_THEME_DEPENDENCY: &str = "link:./.whale-desktop/dsh-whale-mist";
+const RETIRED_PROFILE_PLUGINS: &[&str] = &["dsh-archived-sessions"];
 const NOTIFICATION_FOCUS_PATCH_MARKER: &str = "whale-desktop: notification focus bridge v1";
 const NOTIFICATION_SETTINGS_MESSAGE_PREFIX: &str = "__WHALE_NOTIFICATION_SETTINGS__";
 const MAX_NOTIFICATION_SETTINGS_BYTES: usize = 64 * 1024;
@@ -898,13 +900,16 @@ fn prepare_profile_directory(profile_dir: &Path, runtime_theme: &Path) -> Result
     if !dependencies.is_object() {
         *dependencies = serde_json::json!({});
     }
-    dependencies
+    let dependencies = dependencies
         .as_object_mut()
-        .expect("dependencies was normalized")
-        .insert(
-            "dsh-whale-mist".into(),
-            serde_json::json!(PROFILE_THEME_DEPENDENCY),
-        );
+        .expect("dependencies was normalized");
+    for retired in RETIRED_PROFILE_PLUGINS {
+        dependencies.remove(*retired);
+    }
+    dependencies.insert(
+        "dsh-whale-mist".into(),
+        serde_json::json!(PROFILE_THEME_DEPENDENCY),
+    );
 
     let dsh = root.entry("dsh").or_insert_with(|| serde_json::json!({}));
     if !dsh.is_object() {
@@ -936,7 +941,7 @@ fn prepare_profile_directory(profile_dir: &Path, runtime_theme: &Path) -> Result
         .map(|name| name.to_string())
         .collect::<Vec<_>>();
     for bundle in existing {
-        if !bundles.contains(&bundle) {
+        if !RETIRED_PROFILE_PLUGINS.contains(&bundle.as_str()) && !bundles.contains(&bundle) {
             bundles.push(bundle);
         }
     }
@@ -963,7 +968,7 @@ fn prepare_desktop_profile(app: &AppHandle, runtime: &RuntimePaths) -> Result<()
     patch_notification_profile(&profile_dir)
 }
 
-fn log_files(app: &AppHandle) -> Result<(File, File, PathBuf), String> {
+fn log_files(app: &AppHandle) -> Result<(File, File, PathBuf, PathBuf), String> {
     let log_dir = app
         .path()
         .app_log_dir()
@@ -983,7 +988,7 @@ fn log_files(app: &AppHandle) -> Result<(File, File, PathBuf), String> {
         .truncate(true)
         .open(&stderr_path)
         .map_err(|error| format!("无法创建错误日志：{error}"))?;
-    Ok((stdout, stderr, stderr_path))
+    Ok((stdout, stderr, stdout_path, stderr_path))
 }
 
 fn update_status(
@@ -1006,27 +1011,135 @@ fn eval_status(window: &WebviewWindow, method: &str, message: &str) {
     let _ = window.eval(&format!("window.whaleDesktop?.{method}({encoded})"));
 }
 
-fn harness_ready(port: u16) -> bool {
+fn announced_harness_url(output: &str, port: u16) -> Option<String> {
+    let origin = backend_origin(port);
+    let clean_with_slash = format!("{origin}/");
+    let token_prefix = format!("{origin}/?token=");
+    output.lines().rev().find_map(|line| {
+        let candidate = line.strip_prefix("dsh web: ")?.split_whitespace().next()?;
+        if candidate == origin || candidate == clean_with_slash {
+            return Some(candidate.to_string());
+        }
+        let token = candidate.strip_prefix(&token_prefix)?;
+        if token.is_empty()
+            || !token
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+        {
+            return None;
+        }
+        Some(candidate.to_string())
+    })
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum HarnessReadiness {
+    Legacy,
+    Authenticated {
+        cookie_name: String,
+        cookie_value: String,
+    },
+}
+
+fn browser_session_cookie(response: &str) -> Option<(String, String)> {
+    if !response.starts_with("HTTP/1.1 303") {
+        return None;
+    }
+    let header = response.lines().find_map(|line| {
+        let (name, value) = line.split_once(':')?;
+        name.eq_ignore_ascii_case("set-cookie")
+            .then_some(value.trim())
+    })?;
+    let pair = header.split(';').next()?;
+    let (name, value) = pair.split_once('=')?;
+    let safe_name = name.starts_with("dsh-auth-")
+        && name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'));
+    let safe_value = !value.is_empty()
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'));
+    (safe_name && safe_value).then(|| (name.to_string(), value.to_string()))
+}
+
+fn probe_harness(port: u16, announced_url: &str) -> Option<HarnessReadiness> {
+    let origin = backend_origin(port);
+    let Some(request_target) = announced_url.strip_prefix(&origin) else {
+        return None;
+    };
+    let request_target = if request_target.is_empty() {
+        "/"
+    } else {
+        request_target
+    };
+    if request_target != "/" && !request_target.starts_with("/?token=") {
+        return None;
+    }
     let address = SocketAddr::from(([127, 0, 0, 1], port));
     let Ok(mut stream) = TcpStream::connect_timeout(&address, Duration::from_millis(700)) else {
-        return false;
+        return None;
     };
     let _ = stream.set_read_timeout(Some(Duration::from_millis(900)));
-    let request = format!("GET / HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n");
+    let request = format!(
+        "GET {request_target} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n"
+    );
     if stream.write_all(request.as_bytes()).is_err() {
-        return false;
+        return None;
     }
     let mut response = String::new();
     if stream.read_to_string(&mut response).is_err() {
-        return false;
+        return None;
     }
-    response.starts_with("HTTP/1.1 200") && response.contains("<title>DeepSeek Harness</title>")
+    let legacy_ready = response.starts_with("HTTP/1.1 200")
+        && response.contains("<title>DeepSeek Harness</title>");
+    if legacy_ready {
+        return Some(HarnessReadiness::Legacy);
+    }
+    if !response
+        .to_ascii_lowercase()
+        .contains("\r\nlocation: /\r\n")
+    {
+        return None;
+    }
+    let (cookie_name, cookie_value) = browser_session_cookie(&response)?;
+    Some(HarnessReadiness::Authenticated {
+        cookie_name,
+        cookie_value,
+    })
 }
 
-fn spawn_harness(app: &AppHandle, port: u16) -> Result<(Child, PathBuf), String> {
+#[cfg(test)]
+fn harness_ready(port: u16, announced_url: &str) -> bool {
+    probe_harness(port, announced_url).is_some()
+}
+
+fn ready_harness(port: u16, stdout_path: &Path) -> Option<(String, HarnessReadiness)> {
+    let output = fs::read_to_string(stdout_path).ok()?;
+    let announced_url = announced_harness_url(&output, port)?;
+    let readiness = probe_harness(port, &announced_url)?;
+    Some((announced_url, readiness))
+}
+
+fn install_harness_cookie(
+    window: &WebviewWindow,
+    cookie_name: &str,
+    cookie_value: &str,
+) -> Result<(), String> {
+    let cookie = Cookie::parse(format!(
+        "{cookie_name}={cookie_value}; Domain=127.0.0.1; Path=/; HttpOnly; SameSite=Lax"
+    ))
+    .map_err(|error| format!("无法解析 Harness 认证 Cookie：{error}"))?
+    .into_owned();
+    window
+        .set_cookie(cookie)
+        .map_err(|error| format!("无法写入 Harness 认证 Cookie：{error}"))
+}
+
+fn spawn_harness(app: &AppHandle, port: u16) -> Result<(Child, PathBuf, PathBuf), String> {
     let runtime = resolve_runtime(app)?;
     prepare_desktop_profile(app, &runtime)?;
-    let (stdout, stderr, stderr_path) = log_files(app)?;
+    let (stdout, stderr, stdout_path, stderr_path) = log_files(app)?;
     let port_text = port.to_string();
     let mut command = Command::new(&runtime.node);
     command
@@ -1062,14 +1175,14 @@ fn spawn_harness(app: &AppHandle, port: u16) -> Result<(Child, PathBuf), String>
     let child = command
         .spawn()
         .map_err(|error| format!("无法启动内置 DeepSeek Harness：{error}"))?;
-    Ok((child, stderr_path))
+    Ok((child, stdout_path, stderr_path))
 }
 
 fn spawn_wsl_harness(
     app: &AppHandle,
     distro: &str,
     port: u16,
-) -> Result<(Child, PathBuf, bool), String> {
+) -> Result<(Child, PathBuf, PathBuf, bool), String> {
     // Runtime readiness is validated once in launch_backend before port
     // probing, so a missing WSL runtime fails with a readable preparation
     // error instead of a confusing node/port-probe status.
@@ -1080,7 +1193,7 @@ fn spawn_wsl_harness(
         .filter(|value| !value.is_empty());
     let (workspace_wsl, native_workspace) =
         resolve_wsl_workspace(&workspace, explicit_workspace.as_deref())?;
-    let (stdout, stderr, stderr_path) = log_files(app)?;
+    let (stdout, stderr, stdout_path, stderr_path) = log_files(app)?;
     let port_text = port.to_string();
 
     // WSLENV is the only way to hand these values through wsl.exe into the
@@ -1126,7 +1239,7 @@ fn spawn_wsl_harness(
     let child = command
         .spawn()
         .map_err(|error| format!("无法通过 WSL 发行版 {distro} 启动 DeepSeek Harness：{error}"))?;
-    Ok((child, stderr_path, native_workspace))
+    Ok((child, stdout_path, stderr_path, native_workspace))
 }
 
 fn stop_backend(state: &DesktopState) {
@@ -1189,22 +1302,35 @@ fn launch_backend(app: &AppHandle, state: &DesktopState) -> Result<(), String> {
         // the Harness backend or leave the desktop shell unusable.
         eprintln!("{error}");
     }
-    let (child, stderr_path, wsl_distro, starting_detail) = match backend {
+    let (child, stdout_path, stderr_path, wsl_distro, starting_detail) = match backend {
         Backend::Windows => {
-            let (child, stderr_path) = spawn_harness(app, port)?;
-            (child, stderr_path, None, "正在启动内置 DeepSeek Harness…")
+            let (child, stdout_path, stderr_path) = spawn_harness(app, port)?;
+            (
+                child,
+                stdout_path,
+                stderr_path,
+                None,
+                "正在启动内置 DeepSeek Harness…",
+            )
         }
         Backend::Wsl => {
             let distro = resolved_wsl_distro
                 .as_deref()
                 .ok_or_else(|| "WSL 发行版解析状态丢失".to_string())?;
-            let (child, stderr_path, native_workspace) = spawn_wsl_harness(app, distro, port)?;
+            let (child, stdout_path, stderr_path, native_workspace) =
+                spawn_wsl_harness(app, distro, port)?;
             let detail = if native_workspace {
                 "正在启动 WSL 后端…"
             } else {
                 "正在启动 WSL 后端…（工作区位于 Windows 磁盘，速度可能较慢）"
             };
-            (child, stderr_path, Some(distro.to_string()), detail)
+            (
+                child,
+                stdout_path,
+                stderr_path,
+                Some(distro.to_string()),
+                detail,
+            )
         }
     };
     let generation = {
@@ -1251,12 +1377,34 @@ fn launch_backend(app: &AppHandle, state: &DesktopState) -> Result<(), String> {
                 }
                 return;
             }
-            if harness_ready(port) {
-                update_status(&state, "ready", "正在打开官方 WebUI…", Some(url.clone()));
+            if let Some((authenticated_url, readiness)) = ready_harness(port, &stdout_path) {
+                let clean_url = format!("{}/", backend_origin(port));
+                update_status(
+                    &state,
+                    "ready",
+                    "正在打开官方 WebUI…",
+                    Some(clean_url.clone()),
+                );
                 if let Some(window) = app.get_webview_window("main") {
                     eval_status(&window, "setStatus", "正在打开官方 WebUI…");
-                    let encoded =
-                        serde_json::to_string(&url).unwrap_or_else(|_| "\"about:blank\"".into());
+                    let destination = match readiness {
+                        HarnessReadiness::Legacy => authenticated_url,
+                        HarnessReadiness::Authenticated {
+                            cookie_name,
+                            cookie_value,
+                        } => {
+                            if let Err(message) =
+                                install_harness_cookie(&window, &cookie_name, &cookie_value)
+                            {
+                                update_status(&state, "failed", &message, Some(clean_url.clone()));
+                                eval_status(&window, "fail", &message);
+                                return;
+                            }
+                            clean_url
+                        }
+                    };
+                    let encoded = serde_json::to_string(&destination)
+                        .unwrap_or_else(|_| "\"about:blank\"".into());
                     let _ = window.eval(&format!("window.location.replace({encoded})"));
                 }
                 return;
@@ -1418,15 +1566,19 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::{
-        DesktopNotificationSettings, apply_notification_settings_message, backend_origin,
-        choose_port, dsh_web_args, load_notification_settings,
-        notification_settings_bootstrap_script, option_from_args, package_version_from_manifest,
-        parse_wsl_distribution_line, patch_notification_client_content, prepare_profile_directory,
-        resolve_wsl_workspace, save_notification_settings, windows_to_wsl_path,
+        DesktopNotificationSettings, announced_harness_url, apply_notification_settings_message,
+        backend_origin, browser_session_cookie, choose_port, dsh_web_args, harness_ready,
+        load_notification_settings, notification_settings_bootstrap_script, option_from_args,
+        package_version_from_manifest, parse_wsl_distribution_line,
+        patch_notification_client_content, prepare_profile_directory, resolve_wsl_workspace,
+        save_notification_settings, windows_to_wsl_path,
     };
     use std::{
         fs,
+        io::{Read, Write},
+        net::TcpListener,
         path::{Path, PathBuf},
+        thread,
         time::{SystemTime, UNIX_EPOCH},
     };
 
@@ -1475,6 +1627,74 @@ mod tests {
     fn notification_permission_is_scoped_to_the_selected_backend_port() {
         assert_eq!(backend_origin(3210), "http://127.0.0.1:3210");
         assert_eq!(backend_origin(4414), "http://127.0.0.1:4414");
+    }
+
+    #[test]
+    fn extracts_latest_authenticated_url_for_the_selected_port() {
+        let output = concat!(
+            "dsh web: http://127.0.0.1:3210/?token=stale_token\n",
+            "dsh web: http://127.0.0.1:6086/?token=other_port\n",
+            "dsh web: http://127.0.0.1:3210/?token=current-token_42\n",
+        );
+        assert_eq!(
+            announced_harness_url(output, 3210).as_deref(),
+            Some("http://127.0.0.1:3210/?token=current-token_42")
+        );
+        assert_eq!(announced_harness_url(output, 4414), None);
+        assert_eq!(
+            announced_harness_url("dsh web: https://example.com/?token=bad\n", 3210),
+            None
+        );
+    }
+
+    #[test]
+    fn authenticated_readiness_probe_accepts_token_exchange_redirect() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0_u8; 1024];
+            let length = stream.read(&mut request).unwrap();
+            let request = String::from_utf8_lossy(&request[..length]);
+            assert!(request.starts_with("GET /?token=test_token HTTP/1.1\r\n"));
+            stream
+                .write_all(
+                    b"HTTP/1.1 303 See Other\r\nLocation: /\r\nSet-Cookie: dsh-auth-test=v1.payload.signature; Path=/; HttpOnly; SameSite=Strict\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                )
+                .unwrap();
+        });
+        assert!(harness_ready(
+            port,
+            &format!("http://127.0.0.1:{port}/?token=test_token")
+        ));
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn extracts_browser_session_cookie_from_token_exchange() {
+        let response = concat!(
+            "HTTP/1.1 303 See Other\r\n",
+            "Location: /\r\n",
+            "Set-Cookie: dsh-auth-test=v1.payload.signature; Max-Age=2592000; Path=/; HttpOnly; SameSite=Strict\r\n",
+            "Content-Length: 0\r\n\r\n",
+        );
+        assert_eq!(
+            browser_session_cookie(response),
+            Some((
+                "dsh-auth-test".to_string(),
+                "v1.payload.signature".to_string()
+            ))
+        );
+        assert_eq!(
+            browser_session_cookie(
+                "HTTP/1.1 303 See Other\r\nSet-Cookie: dsh-auth-test=unsafe value; Path=/\r\n\r\n"
+            ),
+            None
+        );
+        assert_eq!(
+            browser_session_cookie("HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\n\r\n"),
+            None
+        );
     }
 
     #[test]
@@ -1603,7 +1823,7 @@ mod tests {
     }
 
     #[test]
-    fn profile_uses_a_local_theme_link_and_preserves_user_plugins() {
+    fn profile_preserves_supported_plugins_and_retires_archived_sessions() {
         let temp = TestDirectory::new();
         let runtime_theme = temp.0.join("runtime-theme");
         let profile_dir = temp.0.join("profile");
@@ -1619,9 +1839,10 @@ mod tests {
             r#"{
                 "dependencies": {
                     "dsh-archived-sessions": "github:Zephyr-vibe/dsh-archived-sessions",
+                    "dsh-user-plugin": "1.2.3",
                     "dsh-whale-mist": "link:F:/old/theme"
                 },
-                "dsh": {"profile": {"bundles": ["dsh-archived-sessions"]}}
+                "dsh": {"profile": {"bundles": ["dsh-archived-sessions", "dsh-user-plugin"]}}
             }"#,
         )
         .unwrap();
@@ -1635,9 +1856,14 @@ mod tests {
             manifest["dependencies"]["dsh-whale-mist"].as_str(),
             Some("link:./.whale-desktop/dsh-whale-mist")
         );
+        assert!(
+            manifest["dependencies"]
+                .get("dsh-archived-sessions")
+                .is_none()
+        );
         assert_eq!(
-            manifest["dependencies"]["dsh-archived-sessions"].as_str(),
-            Some("github:Zephyr-vibe/dsh-archived-sessions")
+            manifest["dependencies"]["dsh-user-plugin"].as_str(),
+            Some("1.2.3")
         );
         assert!(
             profile_dir
@@ -1646,13 +1872,13 @@ mod tests {
                 .join("package.json")
                 .is_file()
         );
+        let bundles = manifest["dsh"]["profile"]["bundles"].as_array().unwrap();
         assert!(
-            manifest["dsh"]["profile"]["bundles"]
-                .as_array()
-                .unwrap()
+            !bundles
                 .iter()
                 .any(|bundle| bundle == "dsh-archived-sessions")
         );
+        assert!(bundles.iter().any(|bundle| bundle == "dsh-user-plugin"));
     }
 
     #[test]

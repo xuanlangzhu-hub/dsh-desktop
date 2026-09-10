@@ -363,16 +363,18 @@ window.__ModuleLoader__.load({
     function WhaleSessionStatus({ useSession, statusController }) {
       const h = React.createElement;
       const running = useSession((snapshot) => snapshot.running);
-      const pendingCount = useSession((snapshot) => snapshot.pending.length);
+      // DSH <= 0.1.1 exposed approval prompts as `pending`; the 0.1.5
+      // SessionSnapshot removed that field. Keep the legacy signal when present,
+      // but never let a missing optional capability crash the whole header slot.
+      const pendingCount = useSession((snapshot) => (
+        Array.isArray(snapshot.pending) ? snapshot.pending.length : 0
+      ));
       const removed = useSession((snapshot) => snapshot.removed);
       const themeActive = React.useSyncExternalStore(
         statusController.theme.subscribe,
         statusController.theme.getSnapshot,
         statusController.theme.getSnapshot
       );
-      const qaEnabled = React.useMemo(() => (
-        new URLSearchParams(window.location.search).has("wm-status-qa")
-      ), []);
       const [qaStatus, setQaStatus] = React.useState(null);
       const actualStatus = removed
         ? "idle"
@@ -387,14 +389,16 @@ window.__ModuleLoader__.load({
       const [leaving, setLeaving] = React.useState(false);
 
       React.useEffect(() => {
-        if (!qaEnabled) return undefined;
+        // Private test signal. Keeping this listener inert until the custom
+        // event arrives avoids depending on Harness' short-lived token URL:
+        // its query string is cleared before delayed Session headers mount.
         const receivePreview = (event) => {
           const next = event.detail;
           setQaStatus(["idle", "running", "waiting"].includes(next) ? next : null);
         };
         window.addEventListener("dsh-whale-mist:qa-status", receivePreview);
         return () => window.removeEventListener("dsh-whale-mist:qa-status", receivePreview);
-      }, [qaEnabled]);
+      }, []);
 
       React.useEffect(() => {
         const previous = previousStatus.current;
@@ -825,6 +829,7 @@ window.__ModuleLoader__.load({
         background: linear-gradient(90deg, #e9dcff 0%, #c9a9ff 22%, #8e62dd 56%, #4d278f 100%) !important;
       }
 
+      body.${ACTIVE_CLASS} .re-effort-slider[data-top="true"] .re-effort-track::before,
       body.${ACTIVE_CLASS} .re-effort-slider[data-effort="max"] .re-effort-track::before {
         background: linear-gradient(90deg, #e9dcff 0%, #bc91ff 18%, #7950cf 54%, #3f1b7f 100%) !important;
       }
@@ -900,6 +905,7 @@ window.__ModuleLoader__.load({
           0 3px 9px rgba(42, 86, 119, 0.18);
       }
 
+      body.${ACTIVE_CLASS} .re-effort-slider[data-top="true"] .re-effort-knob,
       body.${ACTIVE_CLASS} .re-effort-slider[data-effort="max"] .re-effort-knob {
         box-shadow:
           0 0 0 3px rgba(126, 99, 221, 0.18),
@@ -1120,7 +1126,7 @@ window.__ModuleLoader__.load({
         name: "conversation.session.header.actions",
         id: "whale-session-status",
         order: -5,
-        inject: () => ({ statusController: { theme: themeSignal } })
+        inject: () => ({ statusController: { theme: themeSignal, qaEnabled } })
       }, WhaleSessionStatus));
     }
 

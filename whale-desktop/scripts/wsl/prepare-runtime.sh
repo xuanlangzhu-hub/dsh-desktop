@@ -92,21 +92,21 @@ for manifest in package.json package-lock.json; do
     cp -f "$src" "$dst"
   fi
 done
-echo "-- npm ci (Linux native install, no Windows node_modules copied)"
-(cd "$DSH_DIR" && "$NPM_BIN" ci --omit=dev --legacy-peer-deps --no-audit --no-fund) || fail "npm ci failed in $DSH_DIR"
+echo "-- npm ci (Linux native install, including DSH's required peer interfaces)"
+(cd "$DSH_DIR" && "$NPM_BIN" ci --omit=dev --no-audit --no-fund) || fail "npm ci failed in $DSH_DIR"
 
 # ── image compatibility ─────────────────────────────────────────────────────
 # vision-bridge v2 patches rc.6 internals and intentionally fails closed when
-# upstream markers drift. rc.1/rc.2 provide the official Vision/Files API
+# upstream markers drift. Current releases provide the official Vision/Files
 # pipeline, so applying the legacy bridge there would be both redundant and
-# unsafe. Keep the rc.6 path only for an explicit rollback.
+# unsafe. Keep the old paths only for an explicit rollback.
 DSH_VERSION="$("$NODE_BIN" -p "require('$DSH_DIR/node_modules/@deepseek-ai/dsh/package.json').version")"
 case "$DSH_VERSION" in
   0.1.0-rc.6)
     echo "-- applying legacy vision-bridge v2 for dsh $DSH_VERSION"
     "$NODE_BIN" "$PROJECT_ROOT/scripts/apply-vision-bridge.mjs" --modules-root "$DSH_DIR/node_modules" || fail "vision-bridge v2 failed"
     ;;
-  0.1.1-rc.1|0.1.1-rc.2)
+  0.1.1-rc.1|0.1.1-rc.2|0.1.5-rc.1)
     echo "-- using official Vision/Files API image pipeline in dsh $DSH_VERSION"
     ;;
   *)
@@ -115,16 +115,22 @@ case "$DSH_VERSION" in
 esac
 
 echo "-- native module smoke checks"
+if [[ "$DSH_VERSION" == "0.1.5-rc.1" ]]; then
+  PLATFORM_NATIVE="koffi"
+else
+  PLATFORM_NATIVE="@deepseek-ai/node-addon-landlock-run"
+fi
 (cd "$DSH_DIR" && "$NODE_BIN" -e '
-const names = ["node-pty", "sharp", "@deepseek-ai/node-addon-landlock-run"];
+const names = ["node-pty", "sharp", process.argv[1]];
 for (const name of names) {
   const mod = require(name);
   if (!mod) throw new Error(name + " loaded empty");
   console.log(name + " loaded ok");
 }
-') || fail "one of node-pty/sharp/landlock failed to load"
-# rc.6 compiles node-pty to build/Release while rc.2 ships a Linux x64
-# prebuild. Remove foreign architectures and accept either verified location.
+' "$PLATFORM_NATIVE") || fail "one of the required native modules failed to load"
+# Older releases may compile node-pty to build/Release while current releases
+# ship a Linux x64 prebuild. Remove foreign architectures and accept either
+# verified location.
 for foreign in darwin-arm64 darwin-x64 win32-arm64 win32-x64 linux-arm64; do
   rm -rf "$DSH_DIR/node_modules/node-pty/prebuilds/$foreign"
 done
@@ -172,6 +178,10 @@ echo "-- preparing profile whale-desktop-wsl"
   --source-profile-dir "$SOURCE_PROFILE" \
   --runtime-root "$RUNTIME_ROOT" || fail "profile preparation failed"
 "$PNPM_BIN" install --dir "$PROFILE_DIR" --reporter append-only || fail "pnpm install failed in $PROFILE_DIR"
+"$NODE_BIN" "$PROJECT_ROOT/scripts/apply-reasoning-effort-015-bridge.mjs" \
+  --profile-dir "$PROFILE_DIR" || fail "dsh-reasoning-effort compatibility patch failed"
+"$NODE_BIN" "$PROJECT_ROOT/scripts/apply-notification-desktop-bridge.mjs" \
+  --profile-dir "$PROFILE_DIR" || fail "dsh-notification desktop bridge failed"
 
 # ── boot-time verification (offline: resolves everything from disk) ──────────
 LOGS_DIR="$RUNTIME_ROOT/logs"
@@ -180,7 +190,12 @@ DUMP_FILE="$LOGS_DIR/dump-config.txt"
 DSH_HOME="$HOME/.dsh" "$NODE_BIN" "$DSH_DIR/node_modules/@deepseek-ai/dsh/lib/bin.js" \
   --profile whale-desktop-wsl --dump-config > "$DUMP_FILE" || fail "dsh --dump-config failed; see $DUMP_FILE"
 grep -q 'dsh-whale-mist' "$DUMP_FILE" || fail "Whale Appearance is missing from the composed config"
-grep -q 'dsh-archived-sessions' "$DUMP_FILE" || fail "dsh-archived-sessions is missing from the composed config"
+grep -q 'dsh-reasoning-effort' "$DUMP_FILE" || fail "dsh-reasoning-effort is missing from the composed config"
+grep -q 'dsh-pet' "$DUMP_FILE" || fail "dsh-pet is missing from the composed config"
+grep -q 'dsh-notification' "$DUMP_FILE" || fail "dsh-notification is missing from the composed config"
+if grep -q 'dsh-archived-sessions' "$DUMP_FILE"; then
+  fail "retired dsh-archived-sessions is still present in the composed config"
+fi
 echo "profile : composed config verified ($DUMP_FILE)"
 
 # ── launcher scripts for the desktop ─────────────────────────────────────────
@@ -189,6 +204,7 @@ mkdir -p "$BIN_DIR"
 cp -f "$SCRIPT_DIR/start-web.js" "$BIN_DIR/start-web.js"
 cp -f "$SCRIPT_DIR/stop-web.js" "$BIN_DIR/stop-web.js"
 cp -f "$PROJECT_ROOT/scripts/apply-notification-desktop-bridge.mjs" "$BIN_DIR/apply-notification-desktop-bridge.mjs"
+cp -f "$PROJECT_ROOT/scripts/apply-reasoning-effort-015-bridge.mjs" "$BIN_DIR/apply-reasoning-effort-015-bridge.mjs"
 cp -f "$SCRIPT_DIR/start-web.sh" "$BIN_DIR/start-web.sh"
 cp -f "$SCRIPT_DIR/stop-web.sh" "$BIN_DIR/stop-web.sh"
 chmod +x "$BIN_DIR/start-web.sh" "$BIN_DIR/stop-web.sh"

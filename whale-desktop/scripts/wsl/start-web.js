@@ -9,9 +9,10 @@
  */
 
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync, writeSync } from "node:fs";
 import { join } from "node:path";
 import { patchNotificationProfile } from "./apply-notification-desktop-bridge.mjs";
+import { patchReasoningProfile } from "./apply-reasoning-effort-015-bridge.mjs";
 
 function fail(message) {
   process.stderr.write(`whale-wsl start-web: ${message}\n`);
@@ -52,6 +53,9 @@ mkdirSync(join(RUNTIME_ROOT, "run"), { recursive: true });
 try {
   const notificationBridge = patchNotificationProfile(PROFILE_DIR);
   process.stdout.write(`notification focus bridge: ${notificationBridge.status}\n`);
+  const reasoningBridge = patchReasoningProfile(PROFILE_DIR);
+  if (reasoningBridge.status === "missing") fail("managed dsh-reasoning-effort is missing from the WSL profile");
+  process.stdout.write(`reasoning effort 0.1.5 bridge: ${reasoningBridge.status}\n`);
 } catch (error) {
   fail(String(error.message ?? error));
 }
@@ -110,7 +114,23 @@ const child = spawn(NODE, [
     WHALE_HARNESS_DESKTOP: "1",
   },
   detached: true,
-  stdio: ["ignore", stdoutFd, stderrFd],
+  stdio: ["ignore", "pipe", stderrFd],
+});
+
+// DSH 0.1.5 announces a per-process authenticated Web URL on stdout. Preserve
+// the Linux runtime log and forward the same line through wsl.exe so the Tauri
+// shell can perform the token exchange in its own WebView2 profile.
+child.stdout?.on("data", (chunk) => {
+  try {
+    writeSync(stdoutFd, chunk);
+  } catch {
+    // The desktop-facing stream remains authoritative if the local log closes.
+  }
+  try {
+    process.stdout.write(chunk);
+  } catch {
+    // The parent may already be shutting down; child lifecycle still wins.
+  }
 });
 
 writeFileSync(PID_FILE, `${child.pid}\n`, "utf8");

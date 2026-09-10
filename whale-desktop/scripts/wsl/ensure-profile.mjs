@@ -13,6 +13,10 @@
  *   - Every other Windows plugin is re-pinned to the exact resolved tarball
  *     URL recorded in the Windows profile's pnpm-lock.yaml and installed by
  *     pnpm in WSL. No Windows node_modules or symlinks are copied.
+ *   - Desktop-tested WSL plugins are pinned here so a profile refresh cannot
+ *     silently retain an obsolete reasoning selector or notification build.
+ *   - dsh-archived-sessions is retired for DSH 0.1.5; session data is left
+ *     untouched, but the incompatible plugin is removed from this profile.
  *   - Existing unknown fields/dependencies in the WSL profile are preserved,
  *     so re-running preparation never destroys local additions.
  */
@@ -82,10 +86,17 @@ try {
 const sourceDependencies = sourceManifest.dependencies ?? {};
 const sourceImporter = sourceLock?.importers?.["."]?.dependencies ?? {};
 const sourceBundles = Array.isArray(sourceManifest.dsh?.profile?.bundles) ? sourceManifest.dsh.profile.bundles : [];
+const retiredPlugins = new Set(["dsh-archived-sessions"]);
+const desktopPluginDependencies = Object.freeze({
+  "dsh-notification": "https://github.com/omdsh-dev/dsh-notification/archive/refs/tags/v0.1.4.tar.gz",
+  "dsh-pet": "0.1.5",
+  "dsh-reasoning-effort": "github:HanaAyane/dsh-reasoning-effort#v0.7.0",
+});
 
 /** Re-pin one Windows profile dependency for WSL. */
 const pinnedDependencies = {};
 for (const [packageName, specifier] of Object.entries(sourceDependencies)) {
+  if (retiredPlugins.has(packageName) || Object.hasOwn(desktopPluginDependencies, packageName)) continue;
   if (packageName === "dsh-whale-mist") {
     if (!existsSync(join(themeDir, "package.json"))) {
       fail(`managed Whale Appearance copy is missing: ${themeDir}`);
@@ -110,15 +121,22 @@ const existingManifest = existsSync(manifestPath) ? readJson(manifestPath, "WSL 
 const existingDependencies = existingManifest.dependencies && typeof existingManifest.dependencies === "object"
   ? existingManifest.dependencies
   : {};
-const dependencies = { ...existingDependencies, ...pinnedDependencies };
+const preservedDependencies = Object.fromEntries(
+  Object.entries(existingDependencies)
+    .filter(([packageName]) => !retiredPlugins.has(packageName) && !Object.hasOwn(desktopPluginDependencies, packageName)),
+);
+const dependencies = { ...preservedDependencies, ...pinnedDependencies, ...desktopPluginDependencies };
 
-const managedPlugins = Object.keys(pinnedDependencies).filter((packageName) => sourceBundles.includes(packageName));
+const managedPlugins = [
+  ...Object.keys(pinnedDependencies).filter((packageName) => sourceBundles.includes(packageName)),
+  ...Object.keys(desktopPluginDependencies),
+];
 const requiredBundles = ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app"];
 const bundles = [
   ...requiredBundles,
   ...managedPlugins,
   ...(Array.isArray(existingManifest.dsh?.profile?.bundles) ? existingManifest.dsh.profile.bundles : [])
-    .filter((bundle) => !requiredBundles.includes(bundle) && !managedPlugins.includes(bundle)),
+    .filter((bundle) => !requiredBundles.includes(bundle) && !managedPlugins.includes(bundle) && !retiredPlugins.has(bundle)),
 ];
 
 const manifest = {
@@ -143,7 +161,7 @@ if (!existsSync(patchPath)) {
 
 const workspacePath = join(profileDir, "pnpm-workspace.yaml");
 const managedWorkspaceMarker = "# whale-harness-managed";
-const buildDependencies = Object.entries(pinnedDependencies)
+const buildDependencies = Object.entries({ ...pinnedDependencies, ...desktopPluginDependencies })
   .filter(([, specifier]) => /^(https?:|git\+|github:)/.test(String(specifier)))
   .map(([packageName]) => packageName);
 const workspaceContent = [

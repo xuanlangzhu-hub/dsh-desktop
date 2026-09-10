@@ -1,16 +1,16 @@
-# Whale Harness Desktop 0.3.0
+# Whale Harness Desktop 0.4.0
 
 Tauri 2 desktop app for DeepSeek Harness and Whale Appearance. The release carries a
 pinned Node.js and DeepSeek Harness runtime, starts the official WebUI on a
 private localhost port, navigates the WebView to it, and owns process cleanup
 when the app exits. It does not call `npx` or download packages at startup.
 
-Version `0.3.0` includes the 0.1.1-rc.1-compatible vision-bridge v2. Declared
-vision models keep the official native image pipeline; text-only DeepSeek models
-keep image blocks in the session for previews and serialize them into notes
-containing the attachment ID and local path. The WSL2 0.1.1-rc.2 runtime uses
-the official Vision/Files API and does not apply the legacy bridge. The Windows
-runtime build fails if patch markers drift instead of shipping an unpatched bundle.
+Version `0.4.0` updates both runtimes to DeepSeek Harness `0.1.5-rc.1`, its
+unified `DeepSeek-V41-Flash` route, and the official arbitrary-file/Vision
+pipeline. The legacy vision bridge remains available only for explicit rollback
+versions. The WSL profile pins the tested reasoning-effort, pet, and notification
+plugins; its narrow DSH 0.1.5 compatibility bridges fail closed if upstream
+plugin markers drift.
 
 ## Experimental WSL2 backend
 
@@ -37,6 +37,8 @@ The WSL backend uses `~/.dsh/profiles/whale-desktop-wsl` and binds
 `127.0.0.1` only; Linux projects under `~/projects` run at native speed.
 The WSL preparation validates Linux x64 native modules and keeps
 `build-essential` available as a source-build fallback.
+`dsh-archived-sessions` is retired from the desktop profiles because it targets
+the pre-V3 session store. Its removal does not delete any session or archive data.
 
 ## Development
 
@@ -75,6 +77,7 @@ none of them are included in the executable, portable folder, or installer.
 Bundled versions:
 
 - Node.js `v24.18.0`
-- Windows fallback: `@deepseek-ai/dsh` `0.1.1-rc.1` + vision-bridge v2
-- WSL2 runtime: `@deepseek-ai/dsh` `0.1.1-rc.2` + official Vision/Files API
-- Whale Appearance `0.3.0` (`Whale Abyss` dark + `Whale Mist` light)
+- Windows fallback: `@deepseek-ai/dsh` `0.1.5-rc.1` + official Vision/Files API
+- WSL2 runtime: `@deepseek-ai/dsh` `0.1.5-rc.1` + official Vision/Files API
+- Whale Appearance `0.4.0` (`Whale Abyss` dark + `Whale Mist` light)
+- WSL plugins: `dsh-reasoning-effort` `0.7.0`, `dsh-pet` `0.1.5`, `dsh-notification` `0.1.4`
