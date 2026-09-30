@@ -6,6 +6,7 @@
 
 # Local test/backup scratch space
 /.tmp/
+/dsh-whale-mist/*.tgz
 
 # Dependency and build caches
 **/node_modules/

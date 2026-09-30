@@ -1,6 +1,6 @@
 {
   "name": "dsh-whale-mist",
-  "version": "0.4.0",
+  "version": "0.5.2",
   "description": "Whale Mist and Whale Abyss themes for the DeepSeek Harness Web UI",
   "type": "module",
   "main": "./src/index.js",
@@ -27,21 +27,25 @@
     }
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh-client-ui-conversation": "0.1.0-rc.6 || 0.1.1-rc.1 || 0.1.1-rc.2 || 0.1.5-rc.1",
-    "@deepseek-ai/dsh-client-ui-layout": "0.1.0-rc.6 || 0.1.1-rc.1 || 0.1.1-rc.2 || 0.1.5-rc.1",
-    "@deepseek-ai/dsh-client-ui-primitives": "0.1.0-rc.6 || 0.1.1-rc.1 || 0.1.1-rc.2 || 0.1.5-rc.1",
-    "@deepseek-ai/dsh-client-ui-sidebar": "0.1.0-rc.6 || 0.1.1-rc.1 || 0.1.1-rc.2 || 0.1.5-rc.1",
-    "@deepseek-ai/dsh-client-ui-settings-general": "0.1.0-rc.6 || 0.1.1-rc.1 || 0.1.1-rc.2 || 0.1.5-rc.1",
-    "@deepseek-ai/dsh-client-ui-theme": "0.1.0-rc.6 || 0.1.1-rc.1 || 0.1.1-rc.2 || 0.1.5-rc.1"
+    "@deepseek-ai/dsh-client-ui-conversation": "0.1.0-rc.6 || 0.1.1-rc.1 || 0.1.1-rc.2 || 0.1.5-rc.1 || 0.2.0-rc.2",
+    "@deepseek-ai/dsh-client-ui-layout": "0.1.0-rc.6 || 0.1.1-rc.1 || 0.1.1-rc.2 || 0.1.5-rc.1 || 0.2.0-rc.2",
+    "@deepseek-ai/dsh-client-ui-primitives": "0.1.0-rc.6 || 0.1.1-rc.1 || 0.1.1-rc.2 || 0.1.5-rc.1 || 0.2.0-rc.2",
+    "@deepseek-ai/dsh-client-ui-sidebar": "0.1.0-rc.6 || 0.1.1-rc.1 || 0.1.1-rc.2 || 0.1.5-rc.1 || 0.2.0-rc.2",
+    "@deepseek-ai/dsh-client-ui-settings-general": "0.1.0-rc.6 || 0.1.1-rc.1 || 0.1.1-rc.2 || 0.1.5-rc.1 || 0.2.0-rc.2",
+    "@deepseek-ai/dsh-client-ui-theme": "0.1.0-rc.6 || 0.1.1-rc.1 || 0.1.1-rc.2 || 0.1.5-rc.1 || 0.2.0-rc.2"
   },
   "files": [
     "src/index.js",
     "src/client.js",
+    "src/windows/WhaleDesktopIcon.cs",
+    "assets/DeepSeek-Harness.ico",
+    "assets/whale-icon-helper.exe",
     "cordis.patch.yml",
     "README.md"
   ],
   "scripts": {
-    "check": "node --check src/index.js && node --check src/client.js"
+    "check": "node --check src/index.js && node --check src/client.js",
+    "build:desktop-icon": "powershell.exe -NoProfile -File scripts/build-desktop-icon.ps1"
   },
   "license": "MIT",
   "private": true

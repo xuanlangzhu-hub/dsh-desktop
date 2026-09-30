@@ -1,5 +1,12 @@
 # Whale Harness Desktop 0.4.0
 
+> Maintenance status (2026-09-30): this Tauri shell is frozen. Windows daily use
+> has moved to the official DeepSeek Harness Desktop; ongoing work in this
+> repository focuses on Whale themes and plugins. The source, old release, WSL
+> runtime and user data are retained for reference and rollback. The instructions
+> below describe the final legacy release. See [current project direction](../README.md)
+> and [official Desktop migration](../official-desktop/README.md).
+
 Tauri 2 desktop app for DeepSeek Harness and Whale Appearance. The release carries a
 pinned Node.js and DeepSeek Harness runtime, starts the official WebUI on a
 private localhost port, navigates the WebView to it, and owns process cleanup

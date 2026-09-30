@@ -1,4 +1,4 @@
-# Whale Appearance is an additive browser plugin. It keeps the official root,
+# Whale Appearance is additive. It keeps the official root,
 # sidebar, workspace, conversation, composer, settings, and trajectory rows.
 - insert:
     - id: whale-mist

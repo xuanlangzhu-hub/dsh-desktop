@@ -864,7 +864,10 @@ window.__ModuleLoader__.load({
         transition: opacity 160ms cubic-bezier(0.23, 1, 0.32, 1);
       }
 
-      body.${ACTIVE_CLASS} .re-effort-slider[data-effort="off"] .re-effort-fx::after {
+      /* v0.8 renders the lowest position as range value 0 instead of
+         exposing the older data-effort attribute. */
+      body.${ACTIVE_CLASS} .re-effort-slider[data-effort="off"] .re-effort-fx::after,
+      body.${ACTIVE_CLASS} .re-effort-slider:has(.re-effort-input[value="0"]) .re-effort-fx::after {
         opacity: 0;
       }
 
@@ -884,7 +887,8 @@ window.__ModuleLoader__.load({
         box-shadow: 0 0 7px rgba(140, 83, 223, 0.68) !important;
       }
 
-      body.${ACTIVE_CLASS} .re-effort-slider[data-effort="off"] .re-effort-flare {
+      body.${ACTIVE_CLASS} .re-effort-slider[data-effort="off"] .re-effort-flare,
+      body.${ACTIVE_CLASS} .re-effort-slider:has(.re-effort-input[value="0"]) .re-effort-flare {
         opacity: 0;
       }
 
@@ -899,7 +903,8 @@ window.__ModuleLoader__.load({
           0 2px 7px rgba(34, 61, 88, 0.24);
       }
 
-      body.${ACTIVE_CLASS} .re-effort-slider[data-effort="off"] .re-effort-knob {
+      body.${ACTIVE_CLASS} .re-effort-slider[data-effort="off"] .re-effort-knob,
+      body.${ACTIVE_CLASS} .re-effort-slider:has(.re-effort-input[value="0"]) .re-effort-knob {
         box-shadow:
           0 0 0 2px rgba(74, 139, 190, 0.12),
           0 3px 9px rgba(42, 86, 119, 0.18);
