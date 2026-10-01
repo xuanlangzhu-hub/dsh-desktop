@@ -16,6 +16,10 @@
 
 宠物新版自带回合完成、失败和待确认提醒，已验收真实的 Windows「对话完成」通知，无需再重复安装旧版 `dsh-notification`。设置入口为官方应用的“插件”和“设置 → 桌宠配置”；Whale 外观位于“设置 → 通用设置 → 鲸系外观”。
 
+另有可选的 [标准模式 (Git Bash)](dsh-whale-gitbash/README.md) 预设：保留标准工具集，
+仅切换命令执行方式。当前 Windows MSYS 需要完全访问或明确的单次授权，
+不能直接代替受限 PowerShell；安装和选择预设不会自动更改默认访问权限。
+
 官方 Desktop 使用独立的 `~/.dsh/profiles/desktop`。当前安装包、图标恢复方式和历史会话迁移注意事项见 [迁移与验收记录](official-desktop/README.md)。社区插件来自各自作者；本仓库维护的是 Whale Appearance 和本地集成，不是官方桌面端或其他插件的分发源。
 
 ## Whale 主题开发
@@ -35,6 +39,7 @@ Windows 图标辅助程序由 C# 源码构建，生成的 EXE 不提交 Git；�
 
 - `whale-desktop/`：Tauri 2 桌面端、启动页、运行时准备与打包脚本
 - `dsh-whale-mist/`：官方 WebUI 的 Whale Abyss / Whale Mist 双主题插件
+- `dsh-whale-gitbash/`：官方 Windows Desktop 的可选标准 Git Bash 预设与原生 SDK 验证
 - `official-desktop/`：官方桌面端迁移记录、任务栏快捷方式图标工具与通知验收脚本
 - `dsh-whale-tui/`：早期 TUI 实验与启动脚本
 - `archive/`：保留的设计原型，不参与正式构建

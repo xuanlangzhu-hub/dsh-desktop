@@ -1,0 +1,27 @@
+{
+  "name": "dsh-whale-gitbash",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "An optional standard Git Bash agent preset for official Windows DSH 0.2.0-rc.2",
+  "main": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./executor": "./src/executor.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": { "bundle": { "patch": "./cordis.patch.yml" } },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.4",
+    "@deepseek-ai/schemastery": "^3.18.1",
+    "@deepseek-ai/dsh-agent-preset": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-pwsh-sandbox": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-tool-bash": "0.2.0-rc.2"
+  },
+  "files": ["src", "cordis.patch.yml", "README.md", "LICENSE"],
+  "scripts": {
+    "check": "node --check src/index.js && node --check src/executor.js && node --check src/executor-core.js",
+    "test": "node --test tests/config.test.mjs"
+  },
+  "license": "MIT"
+}

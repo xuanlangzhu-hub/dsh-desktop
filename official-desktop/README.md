@@ -37,6 +37,16 @@ The active third-party bundles are now:
 | dsh-reasoning-effort | 0.8.0 | Model and reasoning-effort selector |
 | dsh-pet | 0.3.0 | Animated pet, work-state animations, and completion/attention notifications |
 
+On 2026-10-01 an optional `dsh-whale-gitbash` 0.1.0 bundle was added and enabled.
+Its independent `标准模式 (Git Bash)` preset keeps the official standard tool
+composition and replaces only that preset's shell provider. The native SDK
+probe confirmed that Git Bash works with approved full access, including
+Chinese paths, Node/Git, background handles and timeouts. Windows' restricted
+token cannot initialize MSYS signal pipes, so confined calls are refused
+without automatic escalation. The default standard preset and session
+permissions stay unchanged. See [preset usage and limits](../dsh-whale-gitbash/README.md)
+and [native acceptance](../dsh-whale-gitbash/qa/ACCEPTANCE.md).
+
 The archived-sessions plugin is superseded by official archive management.
 The pet compatibility change ([PR #68](https://github.com/PC2005-cloud/dsh-pet/pull/68))
 was merged and the author published
